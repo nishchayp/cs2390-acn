@@ -17,6 +17,13 @@ const (
 	Create CmdType = 1
 )
 
+type RelayCmdType uint8
+
+const (
+	Data   RelayCmdType = 0
+	Extend RelayCmdType = 1
+)
+
 type Cell struct {
 	CircID uint16
 	Cmd    uint8
