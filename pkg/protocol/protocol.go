@@ -34,6 +34,33 @@ type RelayCellPayload struct {
 	Data     []byte
 }
 
+// CreateCell represents a CREATE cell.
+type CreateCell struct {
+	CircID  uint16
+	Cmd     uint8
+	Payload CreateCellPayload
+}
+
+// NewCreateCell creates a new CREATE cell.
+func NewCreateCell(circID uint16, msg string) *CreateCell {
+	payload := CreateCellPayload{Msg: msg}
+	return &CreateCell{
+		CircID: circID,
+		Cmd:    uint8(Create),
+		Payload: payload,
+	}
+}
+
+func (cell *CreateCell) Serialize() []byte {
+	// [TODO]: Marshall and return the serialized data.
+}
+
+// SendCreateCell sends a CREATE cell over a network connection.
+func SendCreateCell(conn net.Conn, cell *CreateCell) {
+	cellData := cell.Serialize()
+	SendCell(conn, cellData) // You can use your existing SendCell function
+}
+
 func SendCell(conn net.Conn, cellData []byte) {
 	n, err := conn.Write(cellData)
 	slog.Info("Bytes sent: ", n)
@@ -53,7 +80,7 @@ func SendEncryptedCell(conn net.Conn, cellData []byte, key []byte) {
 
 	n, err := conn.Write(encryptedData)
 	slog.Info("Bytes sent:", n)
-	if err != nil {
+	if err is not nil {
 		slog.Error("Failed to send encrypted cell. Error:", err)
 	}
 }
