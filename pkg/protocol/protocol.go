@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/binary"
 	"log/slog"
 	"net"
 )
@@ -51,14 +52,33 @@ func NewCreateCell(circID uint16, msg string) *CreateCell {
 	}
 }
 
-func (cell *CreateCell) Serialize() []byte {
-	// [TODO]: Marshall and return the serialized data.
+// Marshall serializes the CREATE cell to bytes.
+func (cell *CreateCell) Marshall() []byte {
+	// Serialize the CREATE cell as per Tor's specification.
+	// Use encoding/binary to serialize the fields.
+	buf := make([]byte, 4+len(cell.Payload.Msg))
+	binary.BigEndian.PutUint16(buf[:2], cell.CircID)
+	buf[2] = cell.Cmd
+	copy(buf[3:], []byte(cell.Payload.Msg))
+	return buf
+}
+
+// Unmarshall deserializes the bytes into a CREATE cell.
+func (cell *CreateCell) Unmarshall(data []byte) {
+	if len(data) < 4 {
+		slog.Error("Invalid CREATE cell data")
+		return
+	}
+
+	cell.CircID = binary.BigEndian.Uint16(data[:2])
+	cell.Cmd = data[2]
+	cell.Payload.Msg = string(data[3:])
 }
 
 // SendCreateCell sends a CREATE cell over a network connection.
 func SendCreateCell(conn net.Conn, cell *CreateCell) {
-	cellData := cell.Serialize()
-	SendCell(conn, cellData) // You can use your existing SendCell function
+	cellData := cell.Marshall()
+	SendCell(conn, cellData)
 }
 
 func SendCell(conn net.Conn, cellData []byte) {
@@ -80,7 +100,7 @@ func SendEncryptedCell(conn net.Conn, cellData []byte, key []byte) {
 
 	n, err := conn.Write(encryptedData)
 	slog.Info("Bytes sent:", n)
-	if err is not nil {
+	if err != nil {
 		slog.Error("Failed to send encrypted cell. Error:", err)
 	}
 }
