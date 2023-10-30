@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/ecdh"
+	crypto "cs2390-acn/pkg/crypto"
 	protocol "cs2390-acn/pkg/protocol"
 	"encoding/hex"
 	"fmt"
@@ -69,7 +70,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
 
-	RunREPL()
+	// RunREPL()
 
 	/* TEST crypto.go */
 
@@ -82,25 +83,25 @@ func main() {
 
 	// Step 1: Generate ECDH key pair for Diffie-Hellman handshake, using Alice & Bob as an example
 	curve := ecdh.P256()
-	privKey1, pubKey1, err := protocol.GenerateKeyPair(curve)
+	privKey1, pubKey1, err := crypto.GenerateKeyPair(curve)
 	if err != nil {
 		slog.Error("Error generating ECDH key pair for Alice:", err)
 		return
 	}
 
-	privKey2, pubKey2, err := protocol.GenerateKeyPair(curve)
+	privKey2, pubKey2, err := crypto.GenerateKeyPair(curve)
 	if err != nil {
 		slog.Error("Failed to generate ECDH key pair for Bob:", err)
 		return
 	}
 	// Step 2: Computing a shared secret
-	secret1, err := protocol.ComputeSharedSecret(privKey1, pubKey2)
+	secret1, err := crypto.ComputeSharedSecret(privKey1, pubKey2)
 	if err != nil {
 		slog.Error("Failed to compute shared secret for Alice:", err)
 		return
 	}
 
-	secret2, err := protocol.ComputeSharedSecret(privKey2, pubKey1)
+	secret2, err := crypto.ComputeSharedSecret(privKey2, pubKey1)
 	if err != nil {
 		slog.Error("Failed to compute shared secret for Bob:", err)
 		return
@@ -111,13 +112,20 @@ func main() {
 	} else {
 		slog.Error("Diffie-Hellman key exchange failed!")
 	}
+	// CONSIDER: why hash and not just use shaed secret
 	// Step 3: Hashing
-	hashedSecret := protocol.HashSharedSecret(secret1)
+	hashedSecret := crypto.Hash(secret1)
+	hashedSecret2 := crypto.Hash(secret2)
+	if bytes.Equal(hashedSecret, hashedSecret2) {
+		slog.Info("Hashing is deterministic!")
+	} else {
+		slog.Error("Hashing is not deterministic!")
+	}
 
 	// Step 4: Test AES functions
 	// Use the hashed secret as a key to encrypt and decrypt data
 	data := []byte("This is a test message.")
-	encryptedData, err := protocol.EncryptData(data, hashedSecret)
+	encryptedData, err := crypto.EncryptData(data, hashedSecret)
 	if err != nil {
 		slog.Error("Error encrypting data:", err)
 		return
@@ -125,7 +133,7 @@ func main() {
 
 	slog.Info("Encrypted Data:", hex.EncodeToString(encryptedData))
 
-	decryptedData, err := protocol.DecryptData(encryptedData, hashedSecret)
+	decryptedData, err := crypto.DecryptData(encryptedData, hashedSecret)
 	if err != nil {
 		slog.Error("Error decrypting data:", err)
 		return
