@@ -72,38 +72,19 @@ func main() {
 	RunREPL()
 
 	/* TEST crypto.go */
-	// Test AES functions
-	originalData := []byte("This is some test data for AES encryption!")
 
-	aesKey, err := protocol.GenerateAESKey()
-	if err != nil {
-		slog.Error("Failed to generate AES key:", err)
-		return
-	}
+	/* Workflow:
+	1. Generating a Diffie-Hellman key pair.
+	2. Computing a shared secret using the public key from the key pair (simulating a handshake with another party).
+	3. Hashing the shared secret to fit the size required for AES.
+	4. Test AES: Using the hashed shared secret as a key to encrypt and decrypt data.
+	*/
 
-	encryptedData, err := protocol.EncryptData(originalData, aesKey)
-	if err != nil {
-		slog.Error("Failed to encrypt data:", err)
-		return
-	}
-
-	decryptedData, err := protocol.DecryptData(encryptedData, aesKey)
-	if err != nil {
-		slog.Error("Failed to decrypt data:", err)
-		return
-	}
-
-	if bytes.Equal(originalData, decryptedData) {
-		slog.Info("AES encryption and decryption successful!")
-	} else {
-		slog.Error("AES encryption and decryption failed!")
-	}
-
-	// Test Diffie-Hellman functions
-	curve := ecdh.P256() // Using P256 curve as an example
+	// Step 1: Generate ECDH key pair for Diffie-Hellman handshake, using Alice & Bob as an example
+	curve := ecdh.P256()
 	privKey1, pubKey1, err := protocol.GenerateKeyPair(curve)
 	if err != nil {
-		slog.Error("Failed to generate ECDH key pair for Alice:", err)
+		slog.Error("Error generating ECDH key pair for Alice:", err)
 		return
 	}
 
@@ -112,7 +93,7 @@ func main() {
 		slog.Error("Failed to generate ECDH key pair for Bob:", err)
 		return
 	}
-
+	// Step 2: Computing a shared secret
 	secret1, err := protocol.ComputeSharedSecret(privKey1, pubKey2)
 	if err != nil {
 		slog.Error("Failed to compute shared secret for Alice:", err)
@@ -130,14 +111,29 @@ func main() {
 	} else {
 		slog.Error("Diffie-Hellman key exchange failed!")
 	}
+	// Step 3: Hashing
+	hashedSecret := protocol.HashSharedSecret(secret1)
 
-	// Mock shared secret for testing
-	secret := []byte("This is a test shared secret")
+	// Step 4: Test AES functions
+	// Use the hashed secret as a key to encrypt and decrypt data
+	data := []byte("This is a test message.")
+	encryptedData, err := protocol.EncryptData(data, hashedSecret)
+	if err != nil {
+		slog.Error("Error encrypting data:", err)
+		return
+	}
 
-	// Hash the mock secret using the hashSharedSecret function from the protocol package
-	hashedSecret := protocol.HashSharedSecret(secret)
+	slog.Info("Encrypted Data:", hex.EncodeToString(encryptedData))
 
-	// Display the hashed secret using slog
-	slog.Info("Original Secret: ", string(secret))
-	slog.Info("Hashed Secret: ", hex.EncodeToString(hashedSecret))
+	decryptedData, err := protocol.DecryptData(encryptedData, hashedSecret)
+	if err != nil {
+		slog.Error("Error decrypting data:", err)
+		return
+	}
+
+	if string(decryptedData) == string(data) {
+		slog.Info("Decryption successful! Decrypted message:", string(decryptedData))
+	} else {
+		slog.Error("Decryption failed. Decrypted data does not match original.")
+	}
 }
