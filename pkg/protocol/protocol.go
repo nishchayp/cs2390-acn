@@ -17,6 +17,13 @@ const (
 	Create CmdType = 1
 )
 
+type RelayCmdType uint8
+
+const (
+	Data   RelayCmdType = 0
+	Extend RelayCmdType = 1
+)
+
 type Cell struct {
 	CircID uint16
 	Cmd    uint8
@@ -27,19 +34,11 @@ type CreateCellPayload struct {
 	Msg string
 }
 
-type RelayCmdType uint8
-
-const (
-	Data   RelayCmdType = 0
-	Extend RelayCmdType = 1
-)
-
 type RelayCellPayload struct {
 	StreamID uint16
 	Digest   [DigestSize]byte
 	Len      uint16
-	Cmd      uint8
-	Rcmd     RelayCmdType // Updated RelayCellPayload with RelayCmdType
+	Cmd      RelayCmdType
 	Data     []byte
 }
 
@@ -57,14 +56,23 @@ type RelayCell struct {
 	Payload RelayCellPayload
 }
 
+// NewCreateCell creates a new CREATE cell.
+func NewCreateCell(circID uint16, msg string) *CreateCell {
+	payload := CreateCellPayload{Msg: msg}
+	return &CreateCell{
+		CircID: circID,
+		Cmd:    uint8(Create),
+		Payload: payload,
+	}
+}
+
 // NewRelayCell creates a new RELAY cell.
-func NewRelayCell(circID, streamID uint16, digest [DigestSize]byte, rcmd RelayCmdType, data []byte) *RelayCell {
+func NewRelayCell(circID, streamID uint16, digest [DigestSize]byte, cmd RelayCmdType, data []byte) *RelayCell {
 	payload := RelayCellPayload{
 		StreamID: streamID,
 		Digest:   digest,
 		Len:      uint16(len(data)),
-		Cmd:      uint8(Relay),
-		Rcmd:     rcmd,
+		Cmd:      cmd,
 		Data:     data,
 	}
 	return &RelayCell{
@@ -83,8 +91,7 @@ func (cell *RelayCell) Marshall() []byte {
 	copy(buf[4:10], cell.Payload.Digest[:])
 	binary.BigEndian.PutUint16(buf[10:12], cell.Payload.Len)
 	buf[12] = cell.Payload.Cmd
-	buf[13] = cell.Payload.Rcmd // Added serialization of RelayCmdType
-	copy(buf[14:], cell.Payload.Data)
+	copy(buf[13:], cell.Payload.Data)
 	return buf
 }
 
@@ -99,15 +106,37 @@ func (cell *RelayCell) Unmarshall(data []byte) {
 	cell.Payload.StreamID = binary.BigEndian.Uint16(data[2:4])
 	copy(cell.Payload.Digest[:], data[4:10])
 	cell.Payload.Len = binary.BigEndian.Uint16(data[10:12])
-	cell.Payload.Cmd = data[12]
-	cell.Payload.Rcmd = RelayCmdType(data[13]) // Added deserialization of RelayCmdType
-	cell.Payload.Data = data[14:]
+	cell.Payload.Cmd = RelayCmdType(data[12])
+	cell.Payload.Data = data[13:]
 }
 
 // SendRelayCell sends a RELAY cell over a network connection.
 func SendRelayCell(conn net.Conn, cell *RelayCell) {
 	cellData := cell.Marshall()
 	SendCell(conn, cellData)
+}
+
+// Marshall serializes the CREATE cell to bytes.
+func (cell *CreateCell) Marshall() []byte {
+	// Serialize the CREATE cell as per Tor's specification.
+	// Use encoding/binary to serialize the fields.
+	buf := make([]byte, 4+len(cell.Payload.Msg))
+	binary.BigEndian.PutUint16(buf[:2], cell.CircID)
+	buf[2] = cell.Cmd
+	copy(buf[3:], []byte(cell.Payload.Msg))
+	return buf
+}
+
+// Unmarshall deserializes the bytes into a CREATE cell.
+func (cell *CreateCell) Unmarshall(data []byte) {
+	if len(data) < 4 {
+		slog.Error("Invalid CREATE cell data")
+		return
+	}
+
+	cell.CircID = binary.BigEndian.Uint16(data[:2])
+	cell.Cmd = data[2]
+	cell.Payload.Msg = string(data[3:])
 }
 
 // SendCreateCell sends a CREATE cell over a network connection.
