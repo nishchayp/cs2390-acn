@@ -22,11 +22,27 @@ func (or *OnionRouter) Initialize() error {
 	// Build registry
 	or.CellHandlerRegistry = make(map[protocol.CmdType]func(net.Conn, *protocol.Cell))
 	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
-	
-	/// ad to db (port, )
-	// add value to db in initialize
-	// Ask database how many entries it has (9000+n)
-	return nil
+
+	// Set up a port to listen for tcp traffic, this would be the service's well know port
+	// All clients (OP and other ORs) will connect to this port
+	// TODO: pick up random node (maybe b/w 9000 - 9100), add to db
+	// - ID
+	// - IP
+	// - Port
+	// - Public key (for RSA)
+	// Generate or obtain the values to be added to the database (replace w/ actual values)
+	/*randomID := 9000
+	randomIP := "192.168.1.2"
+	randomPort := 9001
+	randomPublicKey := "your_generated_public_key"
+
+	// Add the generated values to the database
+	err := AddDataToDB(db, randomIP, randomPort, randomPublicKey)
+	if err != nil {
+		log.Printf("Failed to add data to the database: %v", err)
+		return err
+	}
+	return nil*/
 }
 
 // Global declaration
@@ -103,13 +119,7 @@ func main() {
 		slog.Error("Failed to initialize self. Err: ", err)
 	}
 
-	// Set up a port to listen for tcp traffic, this would be the service's well know port
-	// All clients (OP and other ORs) will connect to this port
-	// TODO: pick up random node (maybe b/w 9000 - 9100), add to db
-	// - ID
-	// - IP
-	// - Port
-	// - Public key (for RSA)
+
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%s", protocol.OnionListenerPort))
 	if err != nil {
 		slog.Error("Failed to set up a port to listen for tcp traffic. Err: ", err)
