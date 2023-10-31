@@ -22,6 +22,10 @@ func (or *OnionRouter) Initialize() error {
 	// Build registry
 	or.CellHandlerRegistry = make(map[protocol.CmdType]func(net.Conn, *protocol.Cell))
 	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
+	
+	/// ad to db (port, )
+	// add value to db in initialize
+	// Ask database how many entries it has (9000+n)
 	return nil
 }
 
@@ -102,6 +106,7 @@ func main() {
 	// Set up a port to listen for tcp traffic, this would be the service's well know port
 	// All clients (OP and other ORs) will connect to this port
 	// TODO: pick up random node (maybe b/w 9000 - 9100), add to db
+	// - ID
 	// - IP
 	// - Port
 	// - Public key (for RSA)
