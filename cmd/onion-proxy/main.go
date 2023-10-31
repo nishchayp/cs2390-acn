@@ -70,7 +70,7 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
 
-	// RunREPL()
+	RunREPL()
 
 	/* TEST crypto.go */
 
