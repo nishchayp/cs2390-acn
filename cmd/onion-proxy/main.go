@@ -24,19 +24,37 @@ type Circuit struct {
 	Path      []OnionRouter
 }
 
-var CurrCircuit *Circuit
+// self
+type OnionProxy struct {
+	// CellHandlerRegistry map[protocol.CmdType]handler.CellHandlerFunc
+	CurrCircuit *Circuit
+}
+
+// Initialize the instance of Onion Router
+func (op *OnionProxy) Initialize() error {
+	// Build registry
+	// op.CellHandlerRegistry = make(map[protocol.CmdType]func(net.Conn, *protocol.Cell))
+	// op.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
+
+	// Create a empty circuit
+	op.CurrCircuit = &Circuit{}
+
+	return nil
+}
+
+// Global declaration
+var self *OnionProxy
 
 func EstablishCircuit() {
-	CurrCircuit = &Circuit{}
 	// TODO: change to parse directory
-	CurrCircuit.Path = append(CurrCircuit.Path, OnionRouter{AddrPort: netip.MustParseAddrPort("127.0.0.1:9001")})
-	// Create a socket and connect to entry OR
-	conn, err := net.Dial("tcp4", CurrCircuit.Path[0].AddrPort.String())
+	self.CurrCircuit.Path = append(self.CurrCircuit.Path, OnionRouter{AddrPort: netip.MustParseAddrPort("127.0.0.1:9090")})
+	// Create a output socket and connect to entry OR
+	conn, err := net.Dial("tcp4", self.CurrCircuit.Path[0].AddrPort.String())
 	if err != nil {
-		slog.Error("Failed to create a socket and connect to server: ", err)
+		slog.Error("Failed to create a output socket and connect: ", err)
 	}
-	CurrCircuit.EntryConn = conn
-	protocol.SendCell(CurrCircuit.EntryConn, []byte("hello"))
+	self.CurrCircuit.EntryConn = conn
+	protocol.SendCell(self.CurrCircuit.EntryConn, []byte("hello"))
 }
 
 func RunREPL() {
@@ -51,7 +69,7 @@ func RunREPL() {
 			os.Exit(0)
 		case "show-circuit":
 			// TODO: print current path
-		case "establish-circuit":
+		case "establish-circuit", "est-ckt":
 			EstablishCircuit()
 			// TODO: create circuit
 		case "send":
@@ -69,6 +87,13 @@ func RunREPL() {
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
+
+	// Setup self instance
+	self := &OnionProxy{}
+	err := self.Initialize()
+	if err != nil {
+		slog.Error("Failed to initialize self. Err: ", err)
+	}
 
 	RunREPL()
 
