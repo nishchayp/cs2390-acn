@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ const (
 	// Use AES-128 for encryption. Size of key should be 16 bytes.
 	AESKeySize = 16
 	NonceSize  = 16
+	RSABitSize = 2048
 )
 
 // GenerateAESKey generates a random AES key.
@@ -30,6 +32,41 @@ func GenerateAESKey() ([]byte, error) {
 	slog.Info("AES key generated successfully.")
 	slog.Debug("Key is %v", key)
 	return key, nil
+}
+
+// GenerateRSAKeys generates a new RSA private and public key pair.
+func GenerateRSAKeys() (*rsa.PrivateKey, *rsa.PublicKey, error) {
+	privKey, err := rsa.GenerateKey(rand.Reader, RSABitSize)
+	if err != nil {
+		slog.Error("Error generating RSA key pair:", err)
+		return nil, nil, err
+	}
+	slog.Info("RSA key pair generated successfully.")
+	return privKey, &privKey.PublicKey, nil
+}
+
+// EncryptWithPublicKey encrypts data with a public key.
+func EncryptWithPublicKey(msg []byte, pubKey *rsa.PublicKey) ([]byte, error) {
+	hash := sha256.New()
+	ciphertext, err := rsa.EncryptOAEP(hash, rand.Reader, pubKey, msg, nil)
+	if err != nil {
+		slog.Error("Error encrypting message with RSA public key:", err)
+		return nil, err
+	}
+	slog.Info("Message encrypted successfully with RSA public key.")
+	return ciphertext, nil
+}
+
+// DecryptWithPrivateKey decrypts data with a private key.
+func DecryptWithPrivateKey(ciphertext []byte, privKey *rsa.PrivateKey) ([]byte, error) {
+	hash := sha256.New()
+	plaintext, err := rsa.DecryptOAEP(hash, rand.Reader, privKey, ciphertext, nil)
+	if err != nil {
+		slog.Error("Error decrypting message with RSA private key:", err)
+		return nil, err
+	}
+	slog.Info("Message decrypted successfully with RSA private key.")
+	return plaintext, nil
 }
 
 // EncryptData encrypts data using AES-CTR.
