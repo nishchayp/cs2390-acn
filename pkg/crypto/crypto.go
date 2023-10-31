@@ -1,4 +1,4 @@
-package protocol
+package crypto
 
 import (
 	"crypto/aes"
@@ -16,6 +16,7 @@ AES: used to encrypt and decrypt the relay cell payload as it moves along the ci
 const (
 	// Use AES-128 for encryption. Size of key should be 16 bytes.
 	AESKeySize = 16
+	NonceSize  = 16
 )
 
 // GenerateAESKey generates a random AES key.
@@ -27,6 +28,7 @@ func GenerateAESKey() ([]byte, error) {
 		return nil, err
 	}
 	slog.Info("AES key generated successfully.")
+	slog.Debug("Key is %v", key)
 	return key, nil
 }
 
@@ -41,7 +43,7 @@ func EncryptData(data, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	nonce := make([]byte, 16)
+	nonce := make([]byte, NonceSize)
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		slog.Error("Error reading nonce:", err)
 		return nil, err
@@ -52,6 +54,7 @@ func EncryptData(data, key []byte) ([]byte, error) {
 	stream.XORKeyStream(ciphertext, data)
 
 	slog.Info("Data encrypted successfully.")
+	slog.Debug("Plaintext: %v\nCiphertext: %v", data, ciphertext)
 	return append(nonce, ciphertext...), nil
 }
 
@@ -65,18 +68,19 @@ func DecryptData(data, key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if len(data) <= 16 {
+	if len(data) <= NonceSize {
 		errMsg := "Ciphertext too short for valid nonce and data."
 		slog.Error(errMsg)
 		return nil, err
 	}
 
-	nonce, ciphertext := data[:16], data[16:]
+	nonce, ciphertext := data[:NonceSize], data[NonceSize:]
 	stream := cipher.NewCTR(block, nonce)
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)
 
 	slog.Info("Data decrypted successfully.")
+	slog.Debug("Plaintext: %v\nCiphertext: %v", plaintext, ciphertext)
 	return plaintext, nil
 }
 
@@ -110,23 +114,25 @@ func ComputeSharedSecret(privKey *ecdh.PrivateKey, pubKey *ecdh.PublicKey) ([]by
 }
 
 // Can also use this for hash data to get digest?
-func HashSharedSecret(secret []byte) []byte {
-	hash := sha256.Sum256(secret)
-	slog.Info("Shared secret hashed successfully.")
+func Hash(data []byte) []byte {
+	hash := sha256.Sum256(data)
+	slog.Info("Shared data hashed successfully.")
+	slog.Debug("%v data hashed to %v", data, hash)
 	return hash[:]
 }
 
 /*
 CREATE:
-1. Create c1, E(g^x1)(might use the EncryptData function to encrypt her public key, but per discussion its not neccessary?)
-    OP wants to establish a connection to OR1 (Onion Router 1).
-	She generates a key pair using generateKeyPair. x1: private key; g^x1: public key.
-	OP sends public key to OR1
-2. (NOT NECCESSARY?) Created c1, g^y1, H(K1)
-	OR1 might use DecryptData to decrypt the received encrypted public key E(g^x1)
-    OR1 generates its own key pair using generateKeyPair, y1: private key and g^y1: public key.
-	OR1 computes the shared secret using OP's public key and its private key with computeSharedSecret.
-	OR1 then hashes the shared secret using hashSharedSecret to get H(K1) and sends it back to OP.
+1. OP Generate a key pair (kinda temp public private)
+2. RSA encrypt OP public key (using OR1 public key) and send to OR1
+3. OR1 generates a key pair (kinda temp public private)
+4. OR1 RSA decrypts OP public (using OR1 private key)
+5. OR1 computes the shared secret using OP's public key and its private key with computeSharedSecret
+6. OR1 will send its temp public key, it will also send a hash of shared secret
+7. OP computes the shared secret using OR1's public key and its private key with computeSharedSecret
+8 OP then verifies that the shared secret they came up with independently is the same by hashing its shared secret and comparing with the hash that was sent
+9. All communication now happens on the shared secret (AES encryptions)
+
 
 RELAY:
 3. OP -> OR1 Relay c1{Extend, OR2, E(g^x2)}

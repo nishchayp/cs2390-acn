@@ -60,8 +60,8 @@ type RelayCell struct {
 func NewCreateCell(circID uint16, msg string) *CreateCell {
 	payload := CreateCellPayload{Msg: msg}
 	return &CreateCell{
-		CircID: circID,
-		Cmd:    uint8(Create),
+		CircID:  circID,
+		Cmd:     uint8(Create),
 		Payload: payload,
 	}
 }
@@ -90,7 +90,7 @@ func (cell *RelayCell) Marshall() []byte {
 	binary.BigEndian.PutUint16(buf[2:4], cell.Payload.StreamID)
 	copy(buf[4:10], cell.Payload.Digest[:])
 	binary.BigEndian.PutUint16(buf[10:12], cell.Payload.Len)
-	buf[12] = cell.Payload.Cmd
+	// buf[12] = cell.Payload.Cmd
 	copy(buf[13:], cell.Payload.Data)
 	return buf
 }
@@ -154,17 +154,17 @@ func SendCell(conn net.Conn, cellData []byte) {
 }
 
 // CHECK: What's cellData param here? is it RelayCellPayload or just Digest + Len + Cmd + Data?
-func SendEncryptedCell(conn net.Conn, cellData []byte, key []byte) {
-	// Encrypt the data before sending.
-	encryptedData, err := EncryptData(cellData, key)
-	if err != nil {
-		slog.Error("Failed to encrypt cell data. Error:", err)
-		return
-	}
+// func SendEncryptedCell(conn net.Conn, cellData []byte, key []byte) {
+// 	// Encrypt the data before sending.
+// 	encryptedData, err := EncryptData(cellData, key)
+// 	if err != nil {
+// 		slog.Error("Failed to encrypt cell data. Error:", err)
+// 		return
+// 	}
 
-	n, err := conn.Write(encryptedData)
-	slog.Info("Bytes sent:", n)
-	if err != nil {
-		slog.Error("Failed to send encrypted cell. Error:", err)
-	}
-}
+// 	n, err := conn.Write(encryptedData)
+// 	slog.Info("Bytes sent:", n)
+// 	if err != nil {
+// 		slog.Error("Failed to send encrypted cell. Error:", err)
+// 	}
+// }
