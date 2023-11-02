@@ -11,9 +11,9 @@ var db *sql.DB // Database connection
 func InitializeDB() (*sql.DB, error) {
 	var err error // Initialize error variable
 	db, err = sql.Open("sqlite3", "onion_router.db")
-	if err != nil {
+	/*if err != nil {
 		return nil, err
-	}
+	}*/
 
 	// Create the 'onion_data' table if it doesn't exist
 	_, err = db.Exec(`
@@ -31,23 +31,30 @@ func InitializeDB() (*sql.DB, error) {
 }
 
 func AddDataToDB(id int, ip string, port int, publicKey string) error {
-	if db == nil {
+	onion_router_db, err := sql.Open("sqlite3", "onion_router.db")
+	/*if err != nil {
+		return nil, err
+	}*/
+	if onion_router_db == nil {
 		return fmt.Errorf("Database connection is not initialized")
 	}
-	_, err := db.Exec("INSERT INTO onion_data (ID, IP, Port, PublicKey) VALUES (?, ?, ?, ?)", id, ip, port, publicKey)
+	
+	_, err = onion_router_db.Exec("REPLACE INTO onion_data (ID, IP, Port, PublicKey) VALUES (?, ?, ?, ?)", id, ip, port, publicKey)
 	return err
 }
 
 func GetDataFromDB(id int) (string, int, string, error) {
-	if db == nil {
+	onion_router_db, err := sql.Open("sqlite3", "onion_router.db")
+
+	if onion_router_db == nil {
 		return "", 0, "", fmt.Errorf("Database connection is not initialized")
 	}
 
-	row := db.QueryRow("SELECT IP, Port, PublicKey FROM onion_data WHERE ID = ?", id)
+	row := onion_router_db.QueryRow("SELECT IP, Port, PublicKey FROM onion_data WHERE ID = ?", id)
 	var ip string
 	var port int
 	var publicKey string
-	err := row.Scan(&ip, &port, &publicKey)
+	err = row.Scan(&ip, &port, &publicKey)
 	if err != nil {
 		return "", 0, "", err
 	}
