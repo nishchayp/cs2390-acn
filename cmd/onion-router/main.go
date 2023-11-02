@@ -37,15 +37,15 @@ func (or *OnionRouter) Initialize() error {
 	// Generate or obtain the values to be added to the database (replace w/ actual values)
 
 	// Initialize the database
-	_, err := oniondb.InitializeDB()
+	//_, err := oniondb.InitializeDB()
 
-	dbID := 9000
+	dbID, _ := strconv.Atoi(os.Args[1])//9000
 	dbIP := os.Args[1]//"192.168.1.2"
-	dbPort, _ := strconv.Atoi(os.Args[1])//protocol.OnionListenerPort//9001
+	dbPort := 9001//strconv.Atoi(os.Args[1])//protocol.OnionListenerPort//9001
 	dbPublicKey := "pk_test2"
 
 	// Add the generated values to the database
-	err = oniondb.AddDataToDB(dbID, dbIP, dbPort, dbPublicKey)
+	err := oniondb.AddDataToDB(dbID, dbIP, dbPort, dbPublicKey)
 	if err != nil {
 		log.Printf("Failed to add data to the database: %v", err)
 		return err
