@@ -180,19 +180,19 @@ func (cell *Cell) Recv(conn net.Conn) error {
 // 	cell.Payload.Msg = string(data[3:])
 // }
 
-// // SendCreateCell sends a CREATE cell over a network connection.
+// SendCreateCell sends a CREATE cell over a network connection.
 // func SendCreateCell(conn net.Conn, cell *CreateCell) {
 // 	cellData := cell.Marshall()
 // 	SendCell(conn, cellData)
 // }
 
-// func SendCell(conn net.Conn, cellData []byte) {
-// 	n, err := conn.Write(cellData)
-// 	slog.Info("Bytes sent: ", n)
-// 	if err != nil {
-// 		slog.Error("Failed to send cell. Error: ", err)
-// 	}
-// }
+func SendCell(conn net.Conn, cellData []byte) {
+	n, err := conn.Write(cellData)
+ 	slog.Info("Bytes sent: ", n)
+ 	if err != nil {
+ 		slog.Error("Failed to send cell. Error: ", err)
+ 	}
+}
 
 // CHECK: What's cellData param here? is it RelayCellPayload or just Digest + Len + Cmd + Data?
 // func SendEncryptedCell(conn net.Conn, cellData []byte, key []byte) {

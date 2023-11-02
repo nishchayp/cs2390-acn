@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"cs2390-acn/pkg/handler"
 	"cs2390-acn/pkg/protocol"
+	//"cs2390-acn/cmd/directory"
+	"cs2390-acn/oniondb" // Import the common package
+
 	"fmt"
 	"log"
 	"log/slog"
 	"net"
 	"os"
 	"strings"
+    _ "github.com/mattn/go-sqlite3" // importing sqlite driver code
 )
 
 // self
@@ -31,18 +35,19 @@ func (or *OnionRouter) Initialize() error {
 	// - Port
 	// - Public key (for RSA)
 	// Generate or obtain the values to be added to the database (replace w/ actual values)
-	/*randomID := 9000
+	//randomID := 9000
+	// test inputs:
 	randomIP := "192.168.1.2"
 	randomPort := 9001
 	randomPublicKey := "your_generated_public_key"
 
 	// Add the generated values to the database
-	err := AddDataToDB(db, randomIP, randomPort, randomPublicKey)
+	err := oniondb.AddDataToDB(randomIP, randomPort, randomPublicKey)
 	if err != nil {
 		log.Printf("Failed to add data to the database: %v", err)
 		return err
 	}
-	return nil*/
+	return nil
 }
 
 // Global declaration

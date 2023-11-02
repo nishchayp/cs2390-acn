@@ -2,12 +2,8 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
-	"os"
-	"strings"
-
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // importing sqlite driver code
 )
 
 // Initialize the SQLite database
