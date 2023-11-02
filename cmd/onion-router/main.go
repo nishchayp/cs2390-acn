@@ -37,12 +37,13 @@ func (or *OnionRouter) Initialize() error {
 	// Generate or obtain the values to be added to the database (replace w/ actual values)
 	//randomID := 9000
 	// test inputs:
+	randomID := 9000
 	randomIP := "192.168.1.2"
 	randomPort := 9001
 	randomPublicKey := "your_generated_public_key"
 
 	// Add the generated values to the database
-	err := oniondb.AddDataToDB(randomIP, randomPort, randomPublicKey)
+	err := oniondb.AddDataToDB(randomID, randomIP, randomPort, randomPublicKey)
 	if err != nil {
 		log.Printf("Failed to add data to the database: %v", err)
 		return err
@@ -117,9 +118,16 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
 
+	// Initialize the database
+	_, err := oniondb.InitializeDB()
+	if err != nil {
+		slog.Error("Failed to initialize the database: ", err)
+		return
+	}
+
 	// Setup self instance
 	self := &OnionRouter{}
-	err := self.Initialize()
+	err = self.Initialize()
 	if err != nil {
 		slog.Error("Failed to initialize self. Err: ", err)
 	}

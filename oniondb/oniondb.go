@@ -1,8 +1,8 @@
 package oniondb
 
 import (
-	"fmt"
 	"database/sql"
+	"fmt"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -30,10 +30,27 @@ func InitializeDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func AddDataToDB(ip string, port int, publicKey string) error {
+func AddDataToDB(id int, ip string, port int, publicKey string) error {
 	if db == nil {
 		return fmt.Errorf("Database connection is not initialized")
 	}
-	_, err := db.Exec("INSERT INTO onion_data (IP, Port, PublicKey) VALUES (?, ?, ?)", ip, port, publicKey)
+	_, err := db.Exec("INSERT INTO onion_data (ID, IP, Port, PublicKey) VALUES (?, ?, ?, ?)", id, ip, port, publicKey)
 	return err
+}
+
+func GetDataFromDB(id int) (string, int, string, error) {
+	if db == nil {
+		return "", 0, "", fmt.Errorf("Database connection is not initialized")
+	}
+
+	row := db.QueryRow("SELECT IP, Port, PublicKey FROM onion_data WHERE ID = ?", id)
+	var ip string
+	var port int
+	var publicKey string
+	err := row.Scan(&ip, &port, &publicKey)
+	if err != nil {
+		return "", 0, "", err
+	}
+
+	return ip, port, publicKey, nil
 }
