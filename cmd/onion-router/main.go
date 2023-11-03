@@ -6,6 +6,7 @@ import (
 	"cs2390-acn/pkg/handler"
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
+	"cs2390-acn/oniondb"
 	"fmt"
 	"log"
 	"log/slog"
@@ -26,6 +27,20 @@ func InitializeSelf() (*models.OnionRouter, error) {
 	}
 	// Build registry
 	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
+
+	// Create a sample DirectoryEntry and Add it to oniondb:
+    /*entry := models.DirectoryEntry{
+        ID:        1,
+        IP:        "192.168.1.100",
+        Port:      8080,
+        PublicKey: "sample_public_key",
+    }
+	_, err := oniondb.InitializeDB()
+	if err != nil {
+		return nil, err
+	}
+	oniondb.AddDataToDB(entry);*/
+
 	return or, nil
 }
 
