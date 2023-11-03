@@ -16,9 +16,12 @@ AES: used to encrypt and decrypt the relay cell payload as it moves along the ci
 */
 const (
 	// Use AES-128 for encryption. Size of key should be 16 bytes.
-	AESKeySize = 16
-	NonceSize  = 16
-	RSABitSize = 2048
+	AESKeySize         = 16
+	NonceSize          = 16
+	RSABitSize         = 2048
+	SHA256ChecksumSize = 32
+	SHA256DigestSize   = 6
+	PubKeyByteSize     = 65
 )
 
 // GenerateAESKey generates a random AES key.
@@ -53,7 +56,7 @@ func EncryptWithPublicKey(msg []byte, pubKey *rsa.PublicKey) ([]byte, error) {
 		slog.Error("Error encrypting message with RSA public key:", err)
 		return nil, err
 	}
-	slog.Info("Message encrypted successfully with RSA public key.")
+	slog.Debug("Message encrypted successfully with RSA public key.")
 	return ciphertext, nil
 }
 
@@ -65,7 +68,7 @@ func DecryptWithPrivateKey(ciphertext []byte, privKey *rsa.PrivateKey) ([]byte, 
 		slog.Error("Error decrypting message with RSA private key:", err)
 		return nil, err
 	}
-	slog.Info("Message decrypted successfully with RSA private key.")
+	slog.Debug("Message decrypted successfully with RSA private key.")
 	return plaintext, nil
 }
 
@@ -90,7 +93,7 @@ func EncryptData(data, key []byte) ([]byte, error) {
 	stream := cipher.NewCTR(block, nonce)
 	stream.XORKeyStream(ciphertext, data)
 
-	slog.Info("Data encrypted successfully.")
+	slog.Debug("Data encrypted successfully.")
 	slog.Debug("Plaintext: %v\nCiphertext: %v", data, ciphertext)
 	return append(nonce, ciphertext...), nil
 }
@@ -116,7 +119,7 @@ func DecryptData(data, key []byte) ([]byte, error) {
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)
 
-	slog.Info("Data decrypted successfully.")
+	slog.Debug("Data decrypted successfully.")
 	slog.Debug("Plaintext: %v\nCiphertext: %v", plaintext, ciphertext)
 	return plaintext, nil
 }
@@ -150,12 +153,21 @@ func ComputeSharedSecret(privKey *ecdh.PrivateKey, pubKey *ecdh.PublicKey) ([]by
 	return secret, nil
 }
 
-// Can also use this for hash data to get digest?
-func Hash(data []byte) []byte {
+// Can also use this for hash data to get digest? -- NO, because digest is 6 bytes, this is 32 bytes
+func Hash(data []byte) [SHA256ChecksumSize]byte {
 	hash := sha256.Sum256(data)
-	slog.Info("Shared data hashed successfully.")
-	slog.Debug("%v data hashed to %v", data, hash)
-	return hash[:]
+	slog.Debug("Shared data hashed successfully.")
+	slog.Debug("Hashing done", "data", data, "hash", hash)
+	return hash
+}
+
+// Hash computes a truncated SHA256 hash of the data and returns the first 6 bytes.
+// WARNING: truncating can reduce its security, making it more susceptible to collisions
+func HashDigest(data []byte) [SHA256DigestSize]byte {
+	fullHash := sha256.Sum256(data)
+	var shortHash [SHA256DigestSize]byte
+	copy(shortHash[:], fullHash[:SHA256DigestSize])
+	return shortHash
 }
 
 /*
