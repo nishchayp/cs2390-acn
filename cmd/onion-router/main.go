@@ -3,9 +3,13 @@ package main
 import (
 	"bufio"
 	"crypto/ecdh"
+	"crypto/ecdh"
 	"cs2390-acn/pkg/handler"
 	"cs2390-acn/pkg/models"
+	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
+	//"cs2390-acn/pkg/oniondb"
+	//"net/netip"
 	"fmt"
 	"log"
 	"log/slog"
@@ -16,8 +20,16 @@ import (
 
 // Global declaration
 var self *models.OnionRouter
+// Global declaration
+var self *models.OnionRouter
 
 // Initialize the instance of Onion Router
+func InitializeSelf() (*models.OnionRouter, error) {
+	or := &models.OnionRouter{
+		CellHandlerRegistry: make(map[protocol.CmdType]models.CellHandlerFunc),
+		Curve:               ecdh.P256(),
+		CircuitLinkMap:      make(map[uint16]models.CircuitLink),
+	}
 func InitializeSelf() (*models.OnionRouter, error) {
 	or := &models.OnionRouter{
 		CellHandlerRegistry: make(map[protocol.CmdType]models.CellHandlerFunc),

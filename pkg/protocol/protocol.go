@@ -305,3 +305,41 @@ func UnmarshallExtendCellPayload(data []byte) (*RelayExtendCellPayload, error) {
 		NextORAddr: addrPort,
 	}, nil
 }
+
+// MarshalPublicKey converts an ecdh.PublicKey to a string.
+func MarshalPublicKey(publicKey *ecdh.PublicKey) (string, error) {
+	// Marshal the public key to bytes
+	bytes, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return "", err
+	}
+
+	// Encode the bytes to a base64 string
+	pemBlock := &pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: bytes,
+	}
+	return string(pem.EncodeToMemory(pemBlock)), nil
+}
+
+// UnmarshalPublicKey converts a string to an ecdh.PublicKey.
+func UnmarshalPublicKey(publicKeyStr string) (*ecdh.PublicKey, error) {
+	// Decode the base64 string to bytes
+	pemBlock, _ := pem.Decode([]byte(publicKeyStr))
+	if pemBlock == nil {
+		return nil, errors.New("Failed to decode public key")
+	}
+
+	// Parse the bytes into a public key
+	publicKey, err := x509.ParsePKIXPublicKey(pemBlock.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// Assert and return as ecdh.PublicKey
+	ecdhPublicKey, ok := publicKey.(*ecdh.PublicKey)
+	if !ok {
+		return nil, errors.New("Invalid public key type")
+	}
+	return ecdhPublicKey, nil
+}
