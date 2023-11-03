@@ -2,9 +2,8 @@ package oniondb
 
 import (
 	"database/sql"
-	"fmt"
 	_ "github.com/mattn/go-sqlite3"
-	"cs2390-acn/models"
+	"cs2390-acn/pkg/models"
 )
 
 var db *sql.DB // Database connection
