@@ -8,10 +8,10 @@ import (
 )
 
 type DirectoryEntry struct {
-	ID        int
-	IP        string
-	Port      int
-	PublicKey string
+	ID        uint16
+	IP        netip.AddrPort
+	Port      uint16
+	PublicKey *ecdh.PublicKey
 }
 
 type ORHop struct {

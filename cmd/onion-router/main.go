@@ -7,6 +7,7 @@ import (
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
 	//"cs2390-acn/pkg/oniondb"
+	//"net/netip"
 	"fmt"
 	"log"
 	"log/slog"
@@ -39,7 +40,29 @@ func InitializeSelf() (*models.OnionRouter, error) {
 	if err != nil {
 		return nil, err
 	}
-	oniondb.AddDataToDB(entry);*/
+	oniondb.AddDataToDB(entry);
+	
+	
+	
+	*/
+	/*
+	// Initialize the database
+	_, err := oniondb.InitializeDB()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a sample DirectoryEntry and add it to oniondb
+	entry := models.DirectoryEntry{
+		ID:        1,
+		IP:        netip.AddrPort(CONSTRUCTOR),
+		Port:      8080,
+		PublicKey: &ecdh.PublicKey{},
+	}
+	err = oniondb.AddDataToDB(entry)
+	if err != nil {
+		return nil, err
+	}*/
 
 	return or, nil
 }
