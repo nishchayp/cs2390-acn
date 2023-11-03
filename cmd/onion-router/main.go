@@ -2,14 +2,32 @@ package main
 
 import (
 	"bufio"
+	"crypto/ecdh"
+	"cs2390-acn/pkg/handler"
+	"cs2390-acn/pkg/models"
+	"cs2390-acn/pkg/protocol"
 	"fmt"
-	"io"
 	"log"
 	"log/slog"
 	"net"
 	"os"
 	"strings"
 )
+
+// Global declaration
+var self *models.OnionRouter
+
+// Initialize the instance of Onion Router
+func InitializeSelf() (*models.OnionRouter, error) {
+	or := &models.OnionRouter{
+		CellHandlerRegistry: make(map[protocol.CmdType]models.CellHandlerFunc),
+		Curve:               ecdh.P256(),
+		CircuitLinkMap:      make(map[uint16]models.CircuitLink),
+	}
+	// Build registry
+	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
+	return or, nil
+}
 
 func RunREPL() {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -33,61 +51,76 @@ func RunREPL() {
 			fmt.Println("Invalid command:")
 			// ListCommands()
 		}
-
 		fmt.Print("> ")
 	}
 }
 
+// Receives a connection, recvs cell, calls the handler based on cell
 func ServeClient(conn net.Conn) {
 	defer conn.Close()
 
-	slog.Debug("Serving client")
-
-	buf := make([]byte, 5)
-	_, err := io.ReadFull(conn, buf)
+	// Recv a cell
+	var cell protocol.Cell
+	err := cell.Recv(conn)
 	if err != nil {
-		slog.Error("Failed to read. Error: ", err)
+		slog.Error("Failed to recv cell over tcp.", "Err", err)
 	}
-	fmt.Println(string(buf))
+
+	slog.Debug("Cell", "value", cell)
+
+	// Call the appropriate handler
+	handlerFunc, ok := self.CellHandlerRegistry[protocol.CmdType(cell.Cmd)]
+	if !ok {
+		slog.Warn("Dropping cell", "unsuported cell cmd", cell.Cmd)
+		return
+	}
+	handlerFunc(self, conn, &cell)
+
 }
 
+// Keeps on checking for client connections and serves the connection if any
 func AcceptClients(tcpListner *net.TCPListener) {
 	for {
 		// Block until accepts a client conn
-		slog.Debug("before accept")
 		conn, err := tcpListner.Accept()
-		slog.Debug("after accept")
 		if err != nil {
-			slog.Error("Failed to accept. Err: ", err)
+			slog.Error("Failed to accept.", "Err", err)
 		}
 		go ServeClient(conn)
 	}
 }
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	if len(os.Args) != 2 {
-		slog.Error("usage: %s <tcpport>", os.Args[0])
-	}
-	tcpport := os.Args[1]
-
-	// Set up a port to listen for tcp traffic
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%s", tcpport))
+	// Setup self instance
+	var err error
+	self, err = InitializeSelf()
 	if err != nil {
-		log.Fatalln("Failed to set up a port to listen for tcp traffic. Err: ", err)
+		slog.Error("Failed to initialize self.", "Err", err)
 	}
 
+	// Set up a port to listen for tcp traffic, this would be the service's well know port
+	// All clients (OP and other ORs) will connect to this port
+	// TODO: pick up random node (maybe b/w 9000 - 9100), add to db
+	// - ID
+	// - IP
+	// - Port
+	// - Public key (for RSA)
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
+	if err != nil {
+		slog.Error("Failed to set up a port to listen for tcp traffic.", "Err", err)
+	}
 	// Create a socket to listen on selected port
 	tcpListner, err := net.ListenTCP("tcp4", tcpAddr)
 	if err != nil {
-		log.Fatalln("Failed to create a socket to listen on selected port. Err: ", err)
+		log.Fatalln("Failed to create a socket to listen on selected port.", "Err", err)
 	}
 	defer tcpListner.Close()
+	slog.Debug("Ready to accept connections")
 
-	slog.Debug("Ready to accept")
-
+	// In a separate thread keep on listening for any connections
 	go AcceptClients(tcpListner)
 
 	RunREPL()
