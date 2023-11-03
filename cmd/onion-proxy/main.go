@@ -108,6 +108,84 @@ func EstablishCircuit() {
 
 }
 
+func SendRelayExtendCell(nextHopPublicKey *ecdh.PublicKey) {
+	// Construct the payload with OP public key (RSA encrypted) and next hop's IP (plain)
+	// For RSA encryption, use the provided public key of the next hop
+	// Since we're skipping the RSA encryption part, I'm directly marshalling the public key
+	_, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
+	// sessionPrivKey unused for now (not received any response yet)
+	if err != nil {
+		slog.Error("Failed to generate session key pair", "Err", err)
+		return
+	}
+	nextORHop := self.CurrCircuit.Path[1]
+
+	// 　Marshall Address
+	relayExtendCellPayload := protocol.RelayExtendCellPayload{
+		PublicKey:  sessionPubKey, // RSA_Enc(sessionPubKey, OR2's public key)
+		NextORAddr: nextORHop.AddrPort,
+	}
+
+	marshalledExtendPayload, _ := relayExtendCellPayload.Marshall()
+
+	// marshalledORHop, err := models.MarshallORHop(nextORHop)
+	// if err != nil {
+	// 	slog.Error("Failed to marshal nextORHop", "Err", err)
+	// 	return err
+	// }
+
+	// marshalledPubKey, err := x509.MarshalPKIXPublicKey(sessionPubKey)
+	// if err != nil {
+	// 	slog.Error("Failed to marshal public key", "Err", err)
+	// 	return err
+	// }
+
+	// // Data = ORHop + PubKey
+	// dataPayload := append(marshalledPubKey, marshalledORHop...)
+
+	// // Truncate or pad the payload as necessary to fit the relay cell size
+	// if len(dataPayload) < protocol.RelayPayloadSize {
+	// 	dataPayload = append(dataPayload, make([]byte, protocol.RelayPayloadSize-len(dataPayload))...)
+	// } else {
+	// 	dataPayload = dataPayload[:protocol.RelayPayloadSize]
+	// }
+
+	digest := crypto.HashDigest(marshalledExtendPayload)
+
+	// Construct the relay cell payload
+	relayPayload := protocol.RelayCellPayload{
+		StreamID: 0, // TODO: Set the StreamID if needed in the future
+		Digest:   [protocol.DigestSize]byte(digest),
+		Len:      uint16(len(marshalledExtendPayload)),
+		Cmd:      protocol.Extend,
+	}
+	copy(relayPayload.Data[:], marshalledExtendPayload)
+	// Encrypt the payload using the shared symmetric key with the Entry OR
+	sharedSecret := self.CurrCircuit.Path[0].SharedSymKey
+	marshalledPayload, err := relayPayload.Marshall()
+	if err != nil {
+		slog.Error("Failed to marshall relay payload", "Err", err)
+		return
+	}
+	encryptedRelayPayload, err := crypto.EncryptData(sharedSecret, marshalledPayload[:])
+	if err != nil {
+		slog.Error("Failed to encrypt marshalled relay payload", "Err", err)
+		return
+	}
+
+	// Create a relay cell and send it
+	relayCell := protocol.Cell{
+		CircID: self.CurrCircuit.Path[0].CircID, // Use the circuit ID for the entry node
+		Cmd:    uint8(protocol.Relay),
+	}
+	copy(relayCell.Data[:], encryptedRelayPayload)
+
+	relayCell.Send(self.CurrCircuit.EntryConn)
+
+	respRelayCell := protocol.Cell{}
+	respRelayCell.Recv(self.CurrCircuit.EntryConn)
+}
+
 func RunREPL() {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Print("> ")

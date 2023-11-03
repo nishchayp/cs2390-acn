@@ -1,14 +1,17 @@
 package protocol
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/x509"
+	"cs2390-acn/pkg/crypto"
 	"encoding/binary"
 	"errors"
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 )
 
 const (
@@ -35,8 +38,9 @@ const (
 type RelayCmdType uint8
 
 const (
-	Data   RelayCmdType = 0
-	Extend RelayCmdType = 1
+	Data     RelayCmdType = 0
+	Extend   RelayCmdType = 1
+	Extended RelayCmdType = 2
 )
 
 type Cell struct {
@@ -51,6 +55,15 @@ type RelayCellPayload struct {
 	Len      uint16
 	Cmd      RelayCmdType
 	Data     [RelayPayloadSize]byte
+}
+type RelayExtendCellPayload struct {
+	PublicKey  *ecdh.PublicKey
+	NextORAddr netip.AddrPort
+}
+
+type RelayExtendedCellPayload struct {
+	PublicKey            *ecdh.PublicKey
+	SharedSymKeyChecksum [SHA256ChecksumSize]byte
 }
 
 type CreateCellPayload struct {
@@ -190,4 +203,105 @@ func (payload *CreatedCellPayload) Unmarshall(data []byte) error {
 	}
 	copy(payload.SharedSymKeyChecksum[:], data[MarshalledPublicKeySize:MarshalledPublicKeySize+SHA256ChecksumSize])
 	return nil
+}
+
+// Marshall serializes the RelayCellPayload to bytes.
+func (payload *RelayCellPayload) Marshall() ([]byte, error) {
+	buf := make([]byte, RelayHeaderSize+RelayPayloadSize)
+	binary.BigEndian.PutUint16(buf[:2], payload.StreamID)
+	copy(buf[2:2+DigestSize], payload.Digest[:])
+	binary.BigEndian.PutUint16(buf[2+DigestSize:4+DigestSize], payload.Len)
+	buf[4+DigestSize] = byte(payload.Cmd)
+	copy(buf[RelayHeaderSize:], payload.Data[:])
+	return buf, nil
+}
+
+// Unmarshall deserializes the bytes into a RelayCellPayload.
+func (payload *RelayCellPayload) Unmarshall(data []byte) error {
+	if len(data) < RelayHeaderSize+RelayPayloadSize {
+		return errors.New("incorrect number of bytes to unmarshall RelayCellPayload")
+	}
+	payload.StreamID = binary.BigEndian.Uint16(data[:2])
+	copy(payload.Digest[:], data[2:2+DigestSize])
+	payload.Len = binary.BigEndian.Uint16(data[2+DigestSize : 4+DigestSize])
+	payload.Cmd = RelayCmdType(data[4+DigestSize])
+	copy(payload.Data[:], data[RelayHeaderSize:])
+	return nil
+}
+
+// Marshall converts ExtendedCellPayload into bytes.
+func (payload *RelayExtendedCellPayload) Marshall() ([]byte, error) {
+	// Marshal the PublicKey using x509
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Combine the command, public key, and checksum into one byte slice
+	buf := new(bytes.Buffer)
+	buf.Write(pubKeyBytes)
+	buf.Write(payload.SharedSymKeyChecksum[:])
+
+	return buf.Bytes(), nil
+}
+
+// Unmarshall parses bytes into an ExtendedCellPayload.
+func UnmarshallExtendedCellPayload(data []byte) (*RelayExtendedCellPayload, error) {
+	// x509.ParsePKIXPublicKey parses the DER encoded public key.
+	pubKeyBytes := data[:crypto.PubKeyByteSize]
+	publicKey, err := x509.ParsePKIXPublicKey(pubKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	checksumStart := crypto.PubKeyByteSize
+	var checksum [SHA256ChecksumSize]byte
+	copy(checksum[:], data[checksumStart:checksumStart+SHA256ChecksumSize])
+
+	return &RelayExtendedCellPayload{
+		PublicKey:            publicKey.(*ecdh.PublicKey),
+		SharedSymKeyChecksum: checksum,
+	}, nil
+}
+
+// Marshall converts ExtendCellPayload into bytes.
+func (payload *RelayExtendCellPayload) Marshall() ([]byte, error) {
+	// Marshal the PublicKey using x509
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Marshal the netip.AddrPort
+	addrPortBytes, err := payload.NextORAddr.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	// Combine the command, public key, and AddrPort into one byte slice
+	buf := new(bytes.Buffer)
+	buf.Write(pubKeyBytes)
+	buf.Write(addrPortBytes)
+
+	return buf.Bytes(), nil
+}
+
+// Unmarshall parses bytes into an ExtendCellPayload.
+func UnmarshallExtendCellPayload(data []byte) (*RelayExtendCellPayload, error) {
+	pubKeyBytes := data[:crypto.PubKeyByteSize]
+	publicKey, err := x509.ParsePKIXPublicKey(pubKeyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	addrPortBytes := data[crypto.PubKeyByteSize:]
+	var addrPort netip.AddrPort
+	if err := addrPort.UnmarshalBinary(addrPortBytes); err != nil {
+		return nil, err
+	}
+
+	return &RelayExtendCellPayload{
+		PublicKey:  publicKey.(*ecdh.PublicKey),
+		NextORAddr: addrPort,
+	}, nil
 }
