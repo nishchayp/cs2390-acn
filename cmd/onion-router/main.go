@@ -20,9 +20,11 @@ var self *models.OnionRouter
 // Initialize the instance of Onion Router
 func InitializeSelf() (*models.OnionRouter, error) {
 	or := &models.OnionRouter{
-		CellHandlerRegistry: make(map[protocol.CmdType]models.CellHandlerFunc),
-		Curve:               ecdh.P256(),
-		CircuitLinkMap:      make(map[uint16]models.CircuitLink),
+		CircIDCounter:            0,
+		Curve:                    ecdh.P256(),
+		CircuitLinkMap:           make(map[uint16]models.CircuitLink),
+		CellHandlerRegistry:      make(map[protocol.CmdType]models.CellHandlerFunc),
+		RelayCellHandlerRegistry: make(map[protocol.RelayCmdType]models.RelayCellHandlerFunc),
 	}
 	// Build registry
 	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler

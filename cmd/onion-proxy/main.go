@@ -3,12 +3,13 @@ package main
 import (
 	"bufio"
 	"crypto/ecdh"
+	"cs2390-acn/pkg/common"
 	"cs2390-acn/pkg/crypto"
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
+	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/netip"
 	"os"
 	"strings"
@@ -31,160 +32,186 @@ func InitializeSelf() (*models.OnionProxy, error) {
 	return op, nil
 }
 
-func EstablishEntryORHop() {
+func EstablishEntryORHop() error {
+
 	// Generate session key pair
-	sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
+	sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(curve)
 	if err != nil {
 		slog.Warn("Failed to generate session key pair", "Err", err)
-		return
+		return []byte{}, err
 	}
 
 	createCellPayload := protocol.CreateCellPayload{
 		PublicKey: sessionPubKey,
 	}
-	marshalledPayload, err := createCellPayload.Marshall()
+	marshalledCreatedCellPayload, err = common.CreateCellHandler(self.CircIDCounter, &createCellPayload)
 	if err != nil {
-		slog.Warn("Failed to establish ckt.", "Err", err)
+		slog.Warn("Failed to handle relay cell")
 		return
 	}
 
-	createCell := protocol.Cell{
-		CircID: self.CircIDCounter,
-		Cmd:    uint8(protocol.Create),
+	sharedSymKey, err := common.EstablishNextHopLink(self.Curve, self.CircIDCounter, self.CurrCircuit.EntryConn)
+	if err != nil {
+		slog.Warn("Failed to establish entry OR hop", "Err", err)
+		return err
 	}
-	copy(createCell.Data[:], marshalledPayload)
+	// Update circ id after successful link creation
 	self.CurrCircuit.Path[0].CircID = self.CircIDCounter
 	self.CircIDCounter++
-
-	createCell.Send(self.CurrCircuit.EntryConn)
-
-	// Recv created cell as response
-	createdCell := protocol.Cell{}
-	err = createdCell.Recv(self.CurrCircuit.EntryConn)
-	if err != nil {
-		slog.Warn("Failed to recv created cell", "Err", err)
-		return
-	}
-	var createdPayload protocol.CreatedCellPayload
-	err = createdPayload.Unmarshall(createdCell.Data[:])
-	if err != nil {
-		slog.Warn("Failed to unmarshall, Err", "Err", err)
-		return
-	}
-
-	sharedSymKey, err := crypto.ComputeSharedSecret(sessionPrivKey, createdPayload.PublicKey)
-	if err != nil {
-		slog.Error("Failed to compute shared secret", "Err", err)
-		return
-	}
-
-	slog.Debug("shared secrets checksum", "local checksum", crypto.Hash(sharedSymKey), "recv checksum", createdPayload.SharedSymKeyChecksum)
-	slog.Debug("shared secret", "local", sharedSymKey)
-
-	if crypto.Hash(sharedSymKey) != createdPayload.SharedSymKeyChecksum {
-		slog.Warn("Failed to compute identical shared secrets", "local checksum", crypto.Hash(sharedSymKey), "recv checksum", createdPayload.SharedSymKeyChecksum)
-		return
-	}
 	self.CurrCircuit.Path[0].SharedSymKey = sharedSymKey
 
-	slog.Info("Established Entry OR Hop")
+	return nil
 }
 
-func EstablishCircuit() {
+func EstablishCircuit() error {
+	circID := self.CircIDCounter
+	_, exists := self.CircuitMap[circID]
+	if exists {
+		slog.Warn("Circuit alread exists for", "CircID", circID)
+		return errors.New("circuit alread exists")
+	}
+	circuit := models.Circuit{}
 	// TODO: change to parse directory
-	self.CurrCircuit.Path = append(self.CurrCircuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9090")})
-	self.CurrCircuit.Path = append(self.CurrCircuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9091")})
-	self.CurrCircuit.Path = append(self.CurrCircuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9092")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9090")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9091")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9092")})
 
-	// Create a output socket and connect to entry OR
-	conn, err := net.Dial("tcp4", self.CurrCircuit.Path[0].AddrPort.String())
-	if err != nil {
-		slog.Warn("Failed to create a output socket and connect", "Err", err)
-		return
+	// Establishing circuit with subsequent hops
+	for i := 0; i < len(circuit.Path); i++ {
+
+		// Generate session key pair
+		sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
+		if err != nil {
+			slog.Warn("Failed to generate session key pair", "Err", err)
+			return err
+		}
+
+		var recvdPublicKey *ecdh.PublicKey
+		var recvdChecksum [protocol.SHA256ChecksumSize]byte
+		if i == 0 { // Special case entry hop
+			createCellPayload := protocol.CreateCellPayload{
+				PublicKey: sessionPubKey,
+			}
+			createdCellPayload, err := common.CreateCellRT(circID, &createCellPayload, circuit.Path[0].AddrPort)
+			if err != nil {
+				slog.Warn("Failed to establish circuit", "Hop", 0, "Err", err)
+			}
+			recvdPublicKey = createdCellPayload.PublicKey
+			recvdChecksum = createdCellPayload.SharedSymKeyChecksum
+		} else {
+			relayExtendCellPayload := protocol.RelayExtendCellPayload{
+				PublicKey:  sessionPubKey,
+				NextORAddr: circuit.Path[i].AddrPort,
+			}
+			relayExtendedCellPayload, err := common.RelayCellExtendRT(circID, &relayExtendCellPayload, circuit, i)
+			if err != nil {
+				slog.Warn("Failed to establish circuit", "Hop", 0, "Err", err)
+			}
+			recvdPublicKey = relayExtendedCellPayload.PublicKey
+			recvdChecksum = relayExtendedCellPayload.SharedSymKeyChecksum
+		}
+
+		// Compute shared secret
+		sharedSymKey, err := crypto.ComputeSharedSecret(sessionPrivKey, recvdPublicKey)
+		if err != nil {
+			slog.Warn("Failed to establish shared secret", "Hop", 0, "Err", err)
+			return err
+		}
+
+		slog.Debug("shared secret", "local", sharedSymKey)
+
+		if crypto.Hash(sharedSymKey) != recvdChecksum {
+			slog.Warn("Failed to compute identical shared secrets", "local checksum", crypto.Hash(sharedSymKey), "recv checksum", recvdChecksum)
+			return err
+		}
+
+		circuit.Path[i].SharedSymKey = sharedSymKey
 	}
-	self.CurrCircuit.EntryConn = conn
 
-	EstablishEntryORHop()
+	slog.Info("Circuit Established")
+	self.CircuitMap[circID] = circuit
+	self.CircIDCounter++
 
+	return nil
 }
 
-func SendRelayExtendCell(nextHopPublicKey *ecdh.PublicKey) {
-	// Construct the payload with OP public key (RSA encrypted) and next hop's IP (plain)
-	// For RSA encryption, use the provided public key of the next hop
-	// Since we're skipping the RSA encryption part, I'm directly marshalling the public key
-	_, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
-	// sessionPrivKey unused for now (not received any response yet)
-	if err != nil {
-		slog.Error("Failed to generate session key pair", "Err", err)
-		return
-	}
-	nextORHop := self.CurrCircuit.Path[1]
+// func SendRelayExtendCell(nextHopPublicKey *ecdh.PublicKey) {
+// 	// Construct the payload with OP public key (RSA encrypted) and next hop's IP (plain)
+// 	// For RSA encryption, use the provided public key of the next hop
+// 	// Since we're skipping the RSA encryption part, I'm directly marshalling the public key
+// 	_, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
+// 	// sessionPrivKey unused for now (not received any response yet)
+// 	if err != nil {
+// 		slog.Error("Failed to generate session key pair", "Err", err)
+// 		return
+// 	}
+// 	nextORHop := self.CurrCircuit.Path[1]
 
-	// 　Marshall Address
-	relayExtendCellPayload := protocol.RelayExtendCellPayload{
-		PublicKey:  sessionPubKey, // RSA_Enc(sessionPubKey, OR2's public key)
-		NextORAddr: nextORHop.AddrPort,
-	}
+// 	// 　Marshall Address
+// 	relayExtendCellPayload := protocol.RelayExtendCellPayload{
+// 		PublicKey:  sessionPubKey, // RSA_Enc(sessionPubKey, OR2's public key)
+// 		NextORAddr: nextORHop.AddrPort,
+// 	}
 
-	marshalledExtendPayload, _ := relayExtendCellPayload.Marshall()
+// 	marshalledExtendPayload, _ := relayExtendCellPayload.Marshall()
 
-	// marshalledORHop, err := models.MarshallORHop(nextORHop)
-	// if err != nil {
-	// 	slog.Error("Failed to marshal nextORHop", "Err", err)
-	// 	return err
-	// }
+// 	// marshalledORHop, err := models.MarshallORHop(nextORHop)
+// 	// if err != nil {
+// 	// 	slog.Error("Failed to marshal nextORHop", "Err", err)
+// 	// 	return err
+// 	// }
 
-	// marshalledPubKey, err := x509.MarshalPKIXPublicKey(sessionPubKey)
-	// if err != nil {
-	// 	slog.Error("Failed to marshal public key", "Err", err)
-	// 	return err
-	// }
+// 	// marshalledPubKey, err := x509.MarshalPKIXPublicKey(sessionPubKey)
+// 	// if err != nil {
+// 	// 	slog.Error("Failed to marshal public key", "Err", err)
+// 	// 	return err
+// 	// }
 
-	// // Data = ORHop + PubKey
-	// dataPayload := append(marshalledPubKey, marshalledORHop...)
+// 	// // Data = ORHop + PubKey
+// 	// dataPayload := append(marshalledPubKey, marshalledORHop...)
 
-	// // Truncate or pad the payload as necessary to fit the relay cell size
-	// if len(dataPayload) < protocol.RelayPayloadSize {
-	// 	dataPayload = append(dataPayload, make([]byte, protocol.RelayPayloadSize-len(dataPayload))...)
-	// } else {
-	// 	dataPayload = dataPayload[:protocol.RelayPayloadSize]
-	// }
+// 	// // Truncate or pad the payload as necessary to fit the relay cell size
+// 	// if len(dataPayload) < protocol.RelayPayloadSize {
+// 	// 	dataPayload = append(dataPayload, make([]byte, protocol.RelayPayloadSize-len(dataPayload))...)
+// 	// } else {
+// 	// 	dataPayload = dataPayload[:protocol.RelayPayloadSize]
+// 	// }
 
-	digest := crypto.HashDigest(marshalledExtendPayload)
+// 	digest := crypto.HashDigest(marshalledExtendPayload)
 
-	// Construct the relay cell payload
-	relayPayload := protocol.RelayCellPayload{
-		StreamID: 0, // TODO: Set the StreamID if needed in the future
-		Digest:   [protocol.DigestSize]byte(digest),
-		Len:      uint16(len(marshalledExtendPayload)),
-		Cmd:      protocol.Extend,
-	}
-	copy(relayPayload.Data[:], marshalledExtendPayload)
-	// Encrypt the payload using the shared symmetric key with the Entry OR
-	sharedSecret := self.CurrCircuit.Path[0].SharedSymKey
-	marshalledPayload, err := relayPayload.Marshall()
-	if err != nil {
-		slog.Error("Failed to marshall relay payload", "Err", err)
-		return
-	}
-	encryptedRelayPayload, err := crypto.EncryptData(sharedSecret, marshalledPayload[:])
-	if err != nil {
-		slog.Error("Failed to encrypt marshalled relay payload", "Err", err)
-		return
-	}
+// 	// Construct the relay cell payload
+// 	relayPayload := protocol.RelayCellPayload{
+// 		StreamID: 0, // TODO: Set the StreamID if needed in the future
+// 		Digest:   [protocol.DigestSize]byte(digest),
+// 		Len:      uint16(len(marshalledExtendPayload)),
+// 		Cmd:      protocol.Extend,
+// 	}
+// 	copy(relayPayload.Data[:], marshalledExtendPayload)
+// 	// Encrypt the payload using the shared symmetric key with the Entry OR
+// 	sharedSecret := self.CurrCircuit.Path[0].SharedSymKey
+// 	marshalledPayload, err := relayPayload.Marshall()
+// 	if err != nil {
+// 		slog.Error("Failed to marshall relay payload", "Err", err)
+// 		return
+// 	}
+// 	encryptedRelayPayload, err := crypto.EncryptData(sharedSecret, marshalledPayload[:])
+// 	if err != nil {
+// 		slog.Error("Failed to encrypt marshalled relay payload", "Err", err)
+// 		return
+// 	}
 
-	// Create a relay cell and send it
-	relayCell := protocol.Cell{
-		CircID: self.CurrCircuit.Path[0].CircID, // Use the circuit ID for the entry node
-		Cmd:    uint8(protocol.Relay),
-	}
-	copy(relayCell.Data[:], encryptedRelayPayload)
+// 	// Create a relay cell and send it
+// 	relayCell := protocol.Cell{
+// 		CircID: self.CurrCircuit.Path[0].CircID, // Use the circuit ID for the entry node
+// 		Cmd:    uint8(protocol.Relay),
+// 	}
+// 	copy(relayCell.Data[:], encryptedRelayPayload)
 
-	relayCell.Send(self.CurrCircuit.EntryConn)
+// 	relayCell.Send(self.CurrCircuit.EntryConn)
 
-	respRelayCell := protocol.Cell{}
-	respRelayCell.Recv(self.CurrCircuit.EntryConn)
-}
+// 	respRelayCell := protocol.Cell{}
+// 	respRelayCell.Recv(self.CurrCircuit.EntryConn)
+// }
 
 func RunREPL() {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -199,7 +226,12 @@ func RunREPL() {
 		case "show-circuit":
 			// TODO: print current path
 		case "establish-circuit", "est-ckt":
-			EstablishCircuit()
+			err := EstablishCircuit()
+			if err != nil {
+				fmt.Println("Failed to establish circuit.")
+			} else {
+				fmt.Println("Circuit established")
+			}
 			// TODO: create circuit
 		case "send":
 			// destIp := words[1]

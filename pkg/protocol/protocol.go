@@ -5,11 +5,11 @@ import (
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/x509"
-	"cs2390-acn/pkg/crypto"
 	"encoding/binary"
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/netip"
 )
@@ -25,6 +25,7 @@ const (
 	PublicKeySize           = 56
 	MarshalledPublicKeySize = 91
 	SHA256ChecksumSize      = 32
+	InvalidCircId           = math.MaxUint16
 )
 
 type CmdType uint8
@@ -172,7 +173,6 @@ func (payload *CreateCellPayload) Unmarshall(data []byte) error {
 func (payload *CreatedCellPayload) Marshall() ([]byte, error) {
 	buf := make([]byte, CellPayloadSize)
 	marshalledPubKey, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
-	slog.Debug("Debug", "Marshalled key sz", len(marshalledPubKey))
 	if err != nil {
 		slog.Warn("Failed to marshall.", "Err", err)
 		return []byte{}, err
@@ -229,41 +229,6 @@ func (payload *RelayCellPayload) Unmarshall(data []byte) error {
 	return nil
 }
 
-// Marshall converts ExtendedCellPayload into bytes.
-func (payload *RelayExtendedCellPayload) Marshall() ([]byte, error) {
-	// Marshal the PublicKey using x509
-	pubKeyBytes, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// Combine the command, public key, and checksum into one byte slice
-	buf := new(bytes.Buffer)
-	buf.Write(pubKeyBytes)
-	buf.Write(payload.SharedSymKeyChecksum[:])
-
-	return buf.Bytes(), nil
-}
-
-// Unmarshall parses bytes into an ExtendedCellPayload.
-func UnmarshallExtendedCellPayload(data []byte) (*RelayExtendedCellPayload, error) {
-	// x509.ParsePKIXPublicKey parses the DER encoded public key.
-	pubKeyBytes := data[:crypto.PubKeyByteSize]
-	publicKey, err := x509.ParsePKIXPublicKey(pubKeyBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	checksumStart := crypto.PubKeyByteSize
-	var checksum [SHA256ChecksumSize]byte
-	copy(checksum[:], data[checksumStart:checksumStart+SHA256ChecksumSize])
-
-	return &RelayExtendedCellPayload{
-		PublicKey:            publicKey.(*ecdh.PublicKey),
-		SharedSymKeyChecksum: checksum,
-	}, nil
-}
-
 // Marshall converts ExtendCellPayload into bytes.
 func (payload *RelayExtendCellPayload) Marshall() ([]byte, error) {
 	// Marshal the PublicKey using x509
@@ -271,37 +236,78 @@ func (payload *RelayExtendCellPayload) Marshall() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	// Marshal the netip.AddrPort
 	addrPortBytes, err := payload.NextORAddr.MarshalBinary()
 	if err != nil {
 		return nil, err
 	}
-
 	// Combine the command, public key, and AddrPort into one byte slice
 	buf := new(bytes.Buffer)
 	buf.Write(pubKeyBytes)
 	buf.Write(addrPortBytes)
-
 	return buf.Bytes(), nil
 }
 
 // Unmarshall parses bytes into an ExtendCellPayload.
-func UnmarshallExtendCellPayload(data []byte) (*RelayExtendCellPayload, error) {
-	pubKeyBytes := data[:crypto.PubKeyByteSize]
-	publicKey, err := x509.ParsePKIXPublicKey(pubKeyBytes)
+func (payload *RelayExtendCellPayload) Unmarshall(data []byte) error {
+	if len(data) < RelayPayloadSize {
+		slog.Warn("Invalid relay cell data")
+		return errors.New("Incorrect number of bytes recv")
+	}
+
+	pub, err := x509.ParsePKIXPublicKey(data[:MarshalledPublicKeySize])
 	if err != nil {
-		return nil, err
+		slog.Warn("Failed to unmarshall, from public key")
+		return err
 	}
-
-	addrPortBytes := data[crypto.PubKeyByteSize:]
-	var addrPort netip.AddrPort
-	if err := addrPort.UnmarshalBinary(addrPortBytes); err != nil {
-		return nil, err
+	// Assert ecdsa public key and then call ECDH on it to get ecdh pub key
+	payload.PublicKey, err = pub.(*ecdsa.PublicKey).ECDH()
+	if err != nil {
+		if err != nil {
+			slog.Warn("Failed to unmarshall, from public key")
+			return err
+		}
 	}
+	// Unmarshall the AddrPort
+	err = payload.NextORAddr.UnmarshalBinary(data[MarshalledPublicKeySize:])
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
-	return &RelayExtendCellPayload{
-		PublicKey:  publicKey.(*ecdh.PublicKey),
-		NextORAddr: addrPort,
-	}, nil
+// Marshall serializes the RelayExtendedCellPayload to bytes.
+func (payload *RelayExtendedCellPayload) Marshall() ([]byte, error) {
+	buf := make([]byte, CellPayloadSize)
+	marshalledPubKey, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
+	if err != nil {
+		slog.Warn("Failed to marshall.", "Err", err)
+		return []byte{}, err
+	}
+	copy(buf, marshalledPubKey)
+	copy(buf[MarshalledPublicKeySize:], payload.SharedSymKeyChecksum[:])
+	return buf, nil
+}
+
+// Unmarshall deserializes the bytes into a RelayExtendeCellPayload.
+func (payload *RelayExtendedCellPayload) Unmarshall(data []byte) error {
+	if len(data) < CellPayloadSize {
+		slog.Warn("Invalid cell data")
+		return errors.New("Incorrect number of bytes recv")
+	}
+	pub, err := x509.ParsePKIXPublicKey(data[:MarshalledPublicKeySize])
+	if err != nil {
+		slog.Warn("Failed to unmarshall, from public key")
+		return err
+	}
+	// Assert ecdsa public key and then call ECDH on it to get ecdh pub key
+	payload.PublicKey, err = pub.(*ecdsa.PublicKey).ECDH()
+	if err != nil {
+		if err != nil {
+			slog.Warn("Failed to unmarshall, from public key")
+			return err
+		}
+	}
+	copy(payload.SharedSymKeyChecksum[:], data[MarshalledPublicKeySize:MarshalledPublicKeySize+SHA256ChecksumSize])
+	return nil
 }

@@ -2,11 +2,11 @@ package handler
 
 import (
 	"bytes"
-	"crypto/ecdh"
-	"crypto/x509"
+	"cs2390-acn/pkg/common"
 	"cs2390-acn/pkg/crypto"
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
+	"errors"
 	"log/slog"
 	"net"
 )
@@ -34,8 +34,14 @@ func CreateCellHandler(self *models.OnionRouter, conn net.Conn, createCell *prot
 		slog.Error("Failed to compute shared secret", "Err", err)
 		return
 	}
+	_, exists := self.CircuitLinkMap[createCell.CircID]
+	if exists {
+		slog.Warn("Circuit link already present.", "CircID", createCell.CircID)
+		return
+	}
 	self.CircuitLinkMap[createCell.CircID] = models.CircuitLink{
 		SharedSymKey: sharedSymKey,
+		NextCircID:   protocol.InvalidCircId,
 	}
 
 	// Return created cell
@@ -75,10 +81,9 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 		return
 	}
 
-	// relayCell.CircID = circuitLink.NextCircID
-
+	// Remove a onion peel since it is a relay cell
 	// Decrypt the cell payload with the shared secret.
-	decryptedPayload, err := crypto.DecryptData(circuitLink.SharedSymKey, relayCell.Data[:])
+	decryptedPayload, err := crypto.DecryptData(relayCell.Data[:], circuitLink.SharedSymKey)
 	if err != nil {
 		slog.Error("Failed to decrypt relay cell payload", "Err", err)
 		return
@@ -93,95 +98,233 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 	}
 	hashedData := crypto.HashDigest(relayPayload.Data[:])
 
-	// if digest != hash(data), forward the original cell with only CircID changed
+	// Handle according to the relay cell payload
+	var marshalledRespRelayPayload []byte
+	// if digest != hash(data), you are just a transit, forward the cell with a peel removed (decrypted) and CircID changed
 	if !bytes.Equal(hashedData[:], relayPayload.Digest[:]) {
-		// CHECK: how it make sure which one to forward? Since it does not include destination's IP addr for now.
-		// Check in map that for the curr ckt link what is the next ckt link
-		// next ckt link will have the next circ id -> use this to send forward
-		// next ckt link will have the next addr -> use this to create connection and then send cell
-		// relayCell.Send(new_conn)
-		return
+		marshalledRespRelayPayload, err = RelayCellForwardHandler(self, relayCell.CircID, &relayPayload)
+		if err != nil {
+			slog.Warn("Failed to forward relay cell")
+			return
+		}
+	} else { // The relay cell is meant for this OR, handle it appropriately
+		relayCellHandlerFunc, ok := self.RelayCellHandlerRegistry[relayPayload.Cmd]
+		if !ok {
+			slog.Warn("Dropping relay cell", "unsuported relay cell cmd", relayPayload.Cmd)
+			return
+		}
+		marshalledRespRelayPayload, err = relayCellHandlerFunc(self, relayCell.CircID, &relayPayload)
+		if err != nil {
+			slog.Warn("Failed to handle relay cell")
+			return
+		}
 	}
 
-	// else, handle per cmd
-	switch relayPayload.Cmd {
-	case protocol.Extend:
-		handleExtendCommand(self, conn, &relayPayload, relayCell.CircID)
-	case protocol.Data:
-		// CHECK: handleProcessData(): We just print it for now?
-	default:
-		slog.Warn("Unknown relay command", "Command", relayPayload.Cmd)
+	// Respond back to the conn with respose received from further along the circuit
+	// Decrypt again and change the circ id back to original
+	respRelayCell := protocol.Cell{
+		CircID: relayCell.CircID,
+		Cmd:    uint8(protocol.Relay),
 	}
+
+	// Add back a onion peel since it is a relay cell
+	// Encrypt the cell payload with the shared secret.
+	encryptedPayload, err := crypto.EncryptData(marshalledRespRelayPayload, circuitLink.SharedSymKey)
+	if err != nil {
+		slog.Error("Failed to decrypt relay cell payload", "Err", err)
+		return
+	}
+	copy(respRelayCell.Data[:], encryptedPayload)
+	respRelayCell.Send(conn)
+	return
+}
+
+// Peel and forward a cell and then get the response and add peel and send it back
+func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPayload *protocol.RelayCellPayload) ([]byte, error) {
+	circuitLink, exists := self.CircuitLinkMap[circID]
+	if !exists {
+		slog.Warn("Circuit not found for relay cell", "CircID", circID)
+		return []byte{}, errors.New("circuit not found for relay cell")
+	}
+
+	if circuitLink.NextCircID == protocol.InvalidCircId { // Does not have a link to forward, probably it's the last link
+		slog.Warn("No next link to forward to")
+		return []byte{}, errors.New("no next link to forward to")
+	}
+	forwardRelayCell := protocol.Cell{
+		CircID: circuitLink.NextCircID,
+		Cmd:    uint8(protocol.Relay),
+	}
+	marshalledRelayPayload, err := relayPayload.Marshall()
+	if err != nil {
+		slog.Warn("Failed to marshall relay payload.", "Err", err)
+		return []byte{}, err
+	}
+	copy(forwardRelayCell.Data[:], marshalledRelayPayload)
+
+	// Create a output socket and connect to entry OR
+	forwarderConn, err := net.Dial("tcp4", circuitLink.NextORAddrPort.String())
+	if err != nil {
+		slog.Warn("Failed to create a output socket and connect", "Err", err)
+		return []byte{}, err
+	}
+	defer forwarderConn.Close()
+	err = forwardRelayCell.Send(forwarderConn)
+	if err != nil {
+		slog.Warn("Failed to forward", "Err", err)
+		return []byte{}, err
+	}
+
+	// Recv on this forwardConn the response
+	respRelayCell := protocol.Cell{}
+	err = respRelayCell.Recv(forwarderConn)
+	if err != nil {
+		slog.Warn("Failed to forward", "Err", err)
+		return []byte{}, err
+	}
+	return respRelayCell.Data[:], nil
+}
+
+func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayload *protocol.RelayCellPayload) ([]byte, error) {
+	circuitLink, exists := self.CircuitLinkMap[circID]
+	if !exists {
+		slog.Warn("Circuit not found for relay cell", "CircID", circID)
+		return []byte{}, errors.New("circuit not found for relay cell")
+	}
+
+	relayExtendCellPayload := protocol.RelayExtendCellPayload{}
+	err := relayExtendCellPayload.Unmarshall(relayPayload.Data[:])
+	if err != nil {
+		slog.Warn("Failed to unmarshall", "Err", err)
+		return []byte{}, err
+	}
+
+	// Create a output socket and connect to entry OR
+	forwarderConn, err := net.Dial("tcp4", relayExtendCellPayload.NextORAddr.String())
+	if err != nil {
+		slog.Warn("Failed to create a output socket and connect", "Err", err)
+		return []byte{}, err
+	}
+	defer forwarderConn.Close()
+
+	// Make a create cell out of this relay extend cell and send it to establish shared secret b/w
+	// the sender of the relay extend cmd and the next hop
+	sharedSecret, err := common.EstablishNextHopLink(self.Curve, self.CircIDCounter, forwarderConn)
+	if err != nil {
+		slog.Warn("Failed to establish entry OR hop", "Err", err)
+		return err
+	}
+	// Update circ id after successful link creation
+	self.CurrCircuit.Path[0].CircID = self.CircIDCounter
+	self.CircIDCounter++
+	self.CurrCircuit.Path[0].SharedSymKey = sharedSymKey
+
+	if circuitLink.NextCircID == protocol.InvalidCircId { // Does not have a link to forward, probably it's the last link
+		slog.Warn("No next link to forward to")
+		return []byte{}, errors.New("no next link to forward to")
+	}
+	forwardRelayCell := protocol.Cell{
+		CircID: circuitLink.NextCircID,
+		Cmd:    uint8(protocol.Relay),
+	}
+	marshalledRelayPayload, err := relayPayload.Marshall()
+	if err != nil {
+		slog.Warn("Failed to marshall relay payload.", "Err", err)
+		return []byte{}, err
+	}
+	copy(forwardRelayCell.Data[:], marshalledRelayPayload)
+
+	// Create a output socket and connect to entry OR
+	forwarderConn, err := net.Dial("tcp4", circuitLink.NextORAddrPort.String())
+	if err != nil {
+		slog.Warn("Failed to create a output socket and connect", "Err", err)
+		return []byte{}, err
+	}
+	defer forwarderConn.Close()
+	err = forwardRelayCell.Send(forwarderConn)
+	if err != nil {
+		slog.Warn("Failed to forward", "Err", err)
+		return []byte{}, err
+	}
+
+	// Recv on this forwardConn the response
+	respRelayCell := protocol.Cell{}
+	err = respRelayCell.Recv(forwarderConn)
+	if err != nil {
+		slog.Warn("Failed to forward", "Err", err)
+		return []byte{}, err
+	}
+	return respRelayCell.Data[:], nil
 }
 
 // Handles the EXTEND command for the relay cell.
 
-func handleExtendCommand(self *models.OnionRouter, conn net.Conn, relayPayload *protocol.RelayCellPayload, circID uint16) {
-	marshalledPubKey := relayPayload.Data[:crypto.PubKeyByteSize]
-	marshalledExtendPayload := relayPayload.Data[crypto.PubKeyByteSize:relayPayload.Len]
-	// Unmarshal relayPayload
-	sessionPubKey, err := x509.ParsePKIXPublicKey(marshalledPubKey)
-	if err != nil {
-		slog.Error("Failed to unmarshal public key", "Err", err)
-		return
-	}
-	extendCellPayload, err := protocol.UnmarshallExtendCellPayload(marshalledExtendPayload)
-	if err != nil {
-		slog.Error("Failed to unmarshal marshalledExtendPayload", "Err", err)
-		return
-	}
+// func handleExtendCommand(self *models.OnionRouter, conn net.Conn, relayPayload *protocol.RelayCellPayload, circID uint16) {
+// 	marshalledPubKey := relayPayload.Data[:crypto.PubKeyByteSize]
+// 	marshalledExtendPayload := relayPayload.Data[crypto.PubKeyByteSize:relayPayload.Len]
+// 	// Unmarshal relayPayload
+// 	sessionPubKey, err := x509.ParsePKIXPublicKey(marshalledPubKey)
+// 	if err != nil {
+// 		slog.Error("Failed to unmarshal public key", "Err", err)
+// 		return
+// 	}
+// 	extendCellPayload, err := protocol.UnmarshallExtendCellPayload(marshalledExtendPayload)
+// 	if err != nil {
+// 		slog.Error("Failed to unmarshal marshalledExtendPayload", "Err", err)
+// 		return
+// 	}
 
-	// Parse the Extend payload for next OR and encrypted data.
-	sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
-	if err != nil {
-		slog.Warn("Failed to generate session key pair", "Err", err)
-		return
-	}
+// 	// Parse the Extend payload for next OR and encrypted data.
+// 	sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
+// 	if err != nil {
+// 		slog.Warn("Failed to generate session key pair", "Err", err)
+// 		return
+// 	}
 
-	actualPubKey, ok := sessionPubKey.(*ecdh.PublicKey)
-	if !ok {
-		slog.Error("sessionPubKey is not of type *ecdh.PublicKey")
-		return
-	}
-	createCellPayload := protocol.CreateCellPayload{
-		PublicKey: actualPubKey,
-	}
-	marshalledPayload, err := createCellPayload.Marshall()
-	if err != nil {
-		slog.Warn("Failed to establish ckt.", "Err", err)
-		return
-	}
+// 	actualPubKey, ok := sessionPubKey.(*ecdh.PublicKey)
+// 	if !ok {
+// 		slog.Error("sessionPubKey is not of type *ecdh.PublicKey")
+// 		return
+// 	}
+// 	createCellPayload := protocol.CreateCellPayload{
+// 		PublicKey: actualPubKey,
+// 	}
+// 	marshalledPayload, err := createCellPayload.Marshall()
+// 	if err != nil {
+// 		slog.Warn("Failed to establish ckt.", "Err", err)
+// 		return
+// 	}
 
-	createCell := protocol.Cell{
-		CircID: circID,
-		Cmd:    uint8(protocol.Create),
-	}
+// 	createCell := protocol.Cell{
+// 		CircID: circID,
+// 		Cmd:    uint8(protocol.Create),
+// 	}
 
-	// Create a output socket and connect to OR2
-	newConn, err := net.Dial("tcp4", extendCellPayload.NextORAddr.String())
-	if err != nil {
-		slog.Warn("Failed to create a output socket and connect to OR2", "Err", err)
-		return
-	}
-	copy(createCell.Data[:], marshalledPayload)
+// 	// Create a output socket and connect to OR2
+// 	newConn, err := net.Dial("tcp4", extendCellPayload.NextORAddr.String())
+// 	if err != nil {
+// 		slog.Warn("Failed to create a output socket and connect to OR2", "Err", err)
+// 		return
+// 	}
+// 	copy(createCell.Data[:], marshalledPayload)
 
-	createCell.Send(newConn)
+// 	createCell.Send(newConn)
 
-	// Listen for the created cell response from OR2.
-	createdCell := protocol.Cell{}
-	err = createdCell.Recv(newConn)
-	if err != nil {
-		slog.Error("Failed to receive created cell from the next Onion Router", "Err", err)
-		return
-	}
+// 	// Listen for the created cell response from OR2.
+// 	createdCell := protocol.Cell{}
+// 	err = createdCell.Recv(newConn)
+// 	if err != nil {
+// 		slog.Error("Failed to receive created cell from the next Onion Router", "Err", err)
+// 		return
+// 	}
 
-	// Prepare the Extended payload.
-	extendedPayload 
-	extendedCell := protocol.Cell{
-		CircID: 1,
-		Cmd:    uint8(protocol.Extended),
-		Data:  
-	}
-	// Send the extended payload back to the original connection (OP).
-	extendedCell.Send(conn)
-}
+// 	// Prepare the Extended payload.
+// 	// extendedPayload
+// 	extendedCell := protocol.Cell{
+// 		CircID: 1,
+// 		Cmd:    uint8(protocol.Extended),
+// 		// Data:
+// 	}
+// 	// Send the extended payload back to the original connection (OP).
+// 	extendedCell.Send(conn)
+// }
