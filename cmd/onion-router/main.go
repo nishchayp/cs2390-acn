@@ -26,8 +26,13 @@ func InitializeSelf() (*models.OnionRouter, error) {
 		CellHandlerRegistry:      make(map[protocol.CmdType]models.CellHandlerFunc),
 		RelayCellHandlerRegistry: make(map[protocol.RelayCmdType]models.RelayCellHandlerFunc),
 	}
-	// Build registry
+	// Build CellHandlerRegistry registry
 	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
+	or.CellHandlerRegistry[protocol.Relay] = handler.RelayCellHandler
+
+	// Build RelayCellHandlerRegistry registry
+	or.RelayCellHandlerRegistry[protocol.Extend] = handler.RelayCellExtendHandler
+
 	return or, nil
 }
 
@@ -93,7 +98,7 @@ func AcceptClients(tcpListner *net.TCPListener) {
 }
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
 
 	if len(os.Args) != 2 {

@@ -99,7 +99,7 @@ func EstablishCircuit() error {
 				PublicKey:  sessionPubKey,
 				NextORAddr: circuit.Path[i].AddrPort,
 			}
-			relayExtendedCellPayload, err := common.RelayCellExtendRT(circID, &relayExtendCellPayload, &circuit, uint(i))
+			relayExtendedCellPayload, err := common.RelayCellExtendRT(circID, &relayExtendCellPayload, &circuit, uint(i-1))
 			if err != nil {
 				slog.Warn("Failed to establish circuit", "Hop", 0, "Err", err)
 			}
@@ -242,7 +242,7 @@ func RunREPL() {
 }
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
 
 	// Setup self instance
