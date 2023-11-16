@@ -22,46 +22,42 @@ var self *models.OnionProxy
 func InitializeSelf() (*models.OnionProxy, error) {
 	op := &models.OnionProxy{
 		CircIDCounter: 0,
+		CircuitMap:    make(map[uint16]models.Circuit),
 		Curve:         ecdh.P256(),
-	}
-	// Create a empty circuit
-	op.CurrCircuit = &models.Circuit{
-		EntryConn: nil,
-		Path:      []models.ORHop{},
 	}
 	return op, nil
 }
 
-func EstablishEntryORHop() error {
+// func EstablishEntryORHop() error {
 
-	// Generate session key pair
-	sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(curve)
-	if err != nil {
-		slog.Warn("Failed to generate session key pair", "Err", err)
-		return []byte{}, err
-	}
+// 	// Generate session key pair
+// 	sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(curve)
+// 	if err != nil {
+// 		slog.Warn("Failed to generate session key pair", "Err", err)
+// 		return []byte{}, err
+// 	}
 
-	createCellPayload := protocol.CreateCellPayload{
-		PublicKey: sessionPubKey,
-	}
-	marshalledCreatedCellPayload, err = common.CreateCellHandler(self.CircIDCounter, &createCellPayload)
-	if err != nil {
-		slog.Warn("Failed to handle relay cell")
-		return
-	}
+// 	createCellPayload := protocol.CreateCellPayload{
+// 		PublicKey: sessionPubKey,
+// 	}
+// 	marshalledCreatedCellPayload, err = common.CreateCellHandler(self.CircIDCounter, &createCellPayload)
+// 	if err != nil {
+// 		slog.Warn("Failed to handle relay cell")
+// 		return
+// 	}
 
-	sharedSymKey, err := common.EstablishNextHopLink(self.Curve, self.CircIDCounter, self.CurrCircuit.EntryConn)
-	if err != nil {
-		slog.Warn("Failed to establish entry OR hop", "Err", err)
-		return err
-	}
-	// Update circ id after successful link creation
-	self.CurrCircuit.Path[0].CircID = self.CircIDCounter
-	self.CircIDCounter++
-	self.CurrCircuit.Path[0].SharedSymKey = sharedSymKey
+// 	sharedSymKey, err := common.EstablishNextHopLink(self.Curve, self.CircIDCounter, self.CurrCircuit.EntryConn)
+// 	if err != nil {
+// 		slog.Warn("Failed to establish entry OR hop", "Err", err)
+// 		return err
+// 	}
+// 	// Update circ id after successful link creation
+// 	self.CurrCircuit.Path[0].CircID = self.CircIDCounter
+// 	self.CircIDCounter++
+// 	self.CurrCircuit.Path[0].SharedSymKey = sharedSymKey
 
-	return nil
-}
+// 	return nil
+// }
 
 func EstablishCircuit() error {
 	circID := self.CircIDCounter
@@ -103,7 +99,7 @@ func EstablishCircuit() error {
 				PublicKey:  sessionPubKey,
 				NextORAddr: circuit.Path[i].AddrPort,
 			}
-			relayExtendedCellPayload, err := common.RelayCellExtendRT(circID, &relayExtendCellPayload, circuit, i)
+			relayExtendedCellPayload, err := common.RelayCellExtendRT(circID, &relayExtendCellPayload, &circuit, uint(i))
 			if err != nil {
 				slog.Warn("Failed to establish circuit", "Hop", 0, "Err", err)
 			}

@@ -96,6 +96,11 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
+	if len(os.Args) != 2 {
+		log.Fatalf("usage: %s <port>", os.Args[0])
+	}
+	port := os.Args[1]
+
 	// Setup self instance
 	var err error
 	self, err = InitializeSelf()
@@ -110,7 +115,8 @@ func main() {
 	// - IP
 	// - Port
 	// - Public key (for RSA)
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
+	// tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%s", port))
 	if err != nil {
 		slog.Error("Failed to set up a port to listen for tcp traffic.", "Err", err)
 	}

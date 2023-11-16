@@ -77,7 +77,7 @@ func RelayCellRT(circID uint16, relayCellPayload *protocol.RelayCellPayload, cir
 	}
 	// Add peels to onion (encrypt)
 	encryptedMarshalledPayload := make([]byte, protocol.CellPayloadSize)
-	copy(encryptedMarshalledPayload, marshalledPayload)
+	copy(encryptedMarshalledPayload, marshalledPayload) // This would mean payload followed by some 0s
 	for i := int(destHopNum); i >= 0; i-- {
 		encryptedMarshalledPayload, err = crypto.EncryptData(encryptedMarshalledPayload, circuit.Path[i].SharedSymKey)
 		if err != nil {
@@ -101,9 +101,9 @@ func RelayCellRT(circID uint16, relayCellPayload *protocol.RelayCellPayload, cir
 		return nil, err
 	}
 	// Remove peels from onion (decrypt)
-	decryptedMarshalledRespPayload := respRelayCell.Data
+	decryptedMarshalledRespPayload := respRelayCell.Data[:]
 	for i := 0; i <= int(destHopNum); i++ {
-		encryptedMarshalledPayload, err = crypto.DecryptData(decryptedMarshalledRespPayload, circuit.Path[i].SharedSymKey)
+		decryptedMarshalledRespPayload, err = crypto.DecryptData(decryptedMarshalledRespPayload, circuit.Path[i].SharedSymKey)
 		if err != nil {
 			slog.Warn("Failed to encrypt", "Peel (hop) num", i, "Err", err)
 			return nil, err
