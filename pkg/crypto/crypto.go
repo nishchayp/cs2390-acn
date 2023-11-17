@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"cs2390-acn/pkg/protocol"
 	"io"
 	"log/slog"
 )
@@ -93,9 +94,31 @@ func EncryptData(data, key []byte) ([]byte, error) {
 	stream := cipher.NewCTR(block, nonce)
 	stream.XORKeyStream(ciphertext, data)
 
-	slog.Debug("Data encrypted successfully.")
-	slog.Debug("Plaintext: %v\nCiphertext: %v", data, ciphertext)
+	slog.Debug("Data encrypted successfully.", "Plaintext: ", string(data), "Ciphertext: ", string(ciphertext))
 	return append(nonce, ciphertext...), nil
+}
+
+func EncryptWrapper(data [protocol.CellPayloadSize]byte, key []byte) ([protocol.CellPayloadSize]byte, error) {
+	var encryptedData [protocol.CellPayloadSize]byte
+
+	// Extract actual size from the last two bytes
+	size := int(data[protocol.CellPayloadSize-2])<<8 + int(data[protocol.CellPayloadSize-1])
+
+	// Encrypt only the data part
+	encrypted, err := EncryptData(data[:size], key)
+	if err != nil {
+		return encryptedData, err
+	}
+
+	// Copy encrypted data back to array
+	copy(encryptedData[:], encrypted)
+
+	// Update size in the last two bytes
+	newSize := len(encrypted)
+	encryptedData[protocol.CellPayloadSize-2] = byte(newSize >> 8)
+	encryptedData[protocol.CellPayloadSize-1] = byte(newSize & 0xff)
+
+	return encryptedData, nil
 }
 
 // DecryptData decrypts data using AES-CTR.
@@ -119,9 +142,31 @@ func DecryptData(data, key []byte) ([]byte, error) {
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)
 
-	slog.Debug("Data decrypted successfully.")
-	slog.Debug("Plaintext: %v\nCiphertext: %v", plaintext, ciphertext)
+	slog.Debug("Data encrypted successfully.", "Plaintext: ", string(plaintext), "Ciphertext: ", string(ciphertext))
 	return plaintext, nil
+}
+
+func DecryptWrapper(data [protocol.CellPayloadSize]byte, key []byte) ([protocol.CellPayloadSize]byte, error) {
+	var decryptedData [protocol.CellPayloadSize]byte
+
+	// Extract actual size from the last two bytes
+	size := int(data[protocol.CellPayloadSize-2])<<8 + int(data[protocol.CellPayloadSize-1])
+
+	// Decrypt only the encrypted part
+	decrypted, err := DecryptData(data[:size], key)
+	if err != nil {
+		return decryptedData, err
+	}
+
+	// Copy decrypted data back to array
+	copy(decryptedData[:], decrypted)
+
+	// Update size in the last two bytes
+	newSize := len(decrypted)
+	decryptedData[protocol.CellPayloadSize-2] = byte(newSize >> 8)
+	decryptedData[protocol.CellPayloadSize-1] = byte(newSize & 0xff)
+
+	return decryptedData, nil
 }
 
 /*
