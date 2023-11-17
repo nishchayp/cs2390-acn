@@ -48,14 +48,6 @@ func RunREPL() {
 			os.Exit(0)
 		case "show-circuit":
 			// TODO: print current path
-			fmt.Println("Current circuit path:")
-			for circID, link := range self.CircuitLinkMap {
-				fmt.Printf("Circuit ID: %d\n", circID)
-				fmt.Printf("   Node: %s\n", link.Node)
-				fmt.Printf("   Port: %s\n", link.Port)
-				fmt.Printf("   Public Key: %s\n", link.PublicKey)
-				fmt.Println("----------------------")
-			}
 		case "establish-circuit":
 			// TODO: create circuit
 		case "send":
