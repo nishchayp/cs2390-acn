@@ -97,9 +97,8 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 		return
 	}
 	hashedData := crypto.HashDigest(relayPayload.Data[:])
-
 	// Handle according to the relay cell payload
-	var marshalledRespRelayPayload [protocol.CellPayloadSize]byte
+	var marshalledRespRelayPayload []byte
 	// if digest != hash(data), you are just a transit, forward the cell with a peel removed (decrypted) and CircID changed
 	if !bytes.Equal(hashedData[:], relayPayload.Digest[:]) {
 		marshalledRespRelayPayload, err = RelayCellForwardHandler(self, relayCell.CircID, &relayPayload)
@@ -129,7 +128,22 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 
 	// Add back a onion peel since it is a relay cell
 	// Encrypt the cell payload with the shared secret.
-	encryptedPayload, err := crypto.EncryptWrapper(marshalledRespRelayPayload, circuitLink.SharedSymKey)
+	// Add ISO 10126-2 padding before encrypt.
+	var temp [protocol.CellPayloadSize]byte
+	payloadLength := len(marshalledRespRelayPayload)
+	if payloadLength > protocol.CellPayloadSize-1 {
+		slog.Error("Payload exceeds maximum length!", "Err", err)
+		return
+	}
+
+	// Set the last two bytes of temp
+	temp[protocol.CellPayloadSize-2] = byte(payloadLength >> 8)
+	temp[protocol.CellPayloadSize-1] = byte(payloadLength & 0xFF)
+
+	copy(temp[:], marshalledRespRelayPayload)
+
+	// Encrypt on the temp array
+	encryptedPayload, err := crypto.EncryptWrapper(temp, circuitLink.SharedSymKey)
 	if err != nil {
 		slog.Error("Failed to decrypt relay cell payload", "Err", err)
 		return
@@ -140,16 +154,16 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 }
 
 // Peel and forward a cell and then get the response and add peel and send it back
-func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPayload *protocol.RelayCellPayload) ([protocol.CellPayloadSize]byte, error) {
+func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPayload *protocol.RelayCellPayload) ([]byte, error) {
 	circuitLink, exists := self.CircuitLinkMap[circID]
 	if !exists {
 		slog.Warn("Circuit not found for relay cell", "CircID", circID)
-		return [protocol.CellPayloadSize]byte{}, errors.New("circuit not found for relay cell")
+		return []byte{}, errors.New("circuit not found for relay cell")
 	}
 
 	if circuitLink.NextCircID == protocol.InvalidCircId { // Does not have a link to forward, it's the last link
 		slog.Warn("No next link to forward to")
-		return [protocol.CellPayloadSize]byte{}, errors.New("no next link to forward to")
+		return []byte{}, errors.New("no next link to forward to")
 	}
 	forwardRelayCell := protocol.Cell{
 		CircID: circuitLink.NextCircID,
@@ -158,7 +172,7 @@ func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPaylo
 	marshalledRelayPayload, err := relayPayload.Marshall()
 	if err != nil {
 		slog.Warn("Failed to marshall relay payload.", "Err", err)
-		return [protocol.CellPayloadSize]byte{}, err
+		return []byte{}, err
 	}
 	copy(forwardRelayCell.Data[:], marshalledRelayPayload[:])
 
@@ -166,13 +180,13 @@ func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPaylo
 	forwarderConn, err := net.Dial("tcp4", circuitLink.NextORAddrPort.String())
 	if err != nil {
 		slog.Warn("Failed to create a output socket and connect", "Err", err)
-		return [protocol.CellPayloadSize]byte{}, err
+		return []byte{}, err
 	}
 	defer forwarderConn.Close()
 	err = forwardRelayCell.Send(forwarderConn)
 	if err != nil {
 		slog.Warn("Failed to forward", "Err", err)
-		return [protocol.CellPayloadSize]byte{}, err
+		return []byte{}, err
 	}
 
 	// Recv on this forwardConn the response
@@ -180,25 +194,25 @@ func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPaylo
 	err = respRelayCell.Recv(forwarderConn)
 	if err != nil {
 		slog.Warn("Failed to forward", "Err", err)
-		return [protocol.CellPayloadSize]byte{}, err
+		return []byte{}, err
 	}
-	return respRelayCell.Data, nil
+	return respRelayCell.Data[:], nil
 }
 
 // Handle relay extend by sending a create cell to the required OR and getting back the reponse of the partial handshake and
 // returning it back to where you got the relay cell from
-func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayload *protocol.RelayCellPayload) ([protocol.CellPayloadSize]byte, error) {
+func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayload *protocol.RelayCellPayload) ([]byte, error) {
 	circuitLink, exists := self.CircuitLinkMap[circID]
 	if !exists {
 		slog.Warn("Circuit not found for relay cell", "CircID", circID)
-		return [protocol.CellPayloadSize]byte{}, errors.New("circuit not found for relay cell")
+		return []byte{}, errors.New("circuit not found for relay cell")
 	}
 
 	relayExtendCellPayload := protocol.RelayExtendCellPayload{}
 	err := relayExtendCellPayload.Unmarshall(relayPayload.Data[:])
 	if err != nil {
 		slog.Warn("Failed to unmarshall", "Err", err)
-		return [protocol.CellPayloadSize]byte{}, err
+		return []byte{}, err
 	}
 
 	// Make a create cell out of this relay extend cell and send it to establish shared secret b/w
@@ -225,7 +239,7 @@ func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayloa
 	marshalledRelayExtendedCellPayload, err := relayExtendedCellPayload.Marshall()
 	if err != nil {
 		slog.Warn("Failed to marshall", "Err", err)
-		return [509]byte{}, err
+		return []byte{}, err
 	}
 	digest := crypto.HashDigest(marshalledRelayExtendedCellPayload)
 
@@ -241,7 +255,7 @@ func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayloa
 	marshalledRespRelayCellPayload, err := respRelayCellPayload.Marshall()
 	if err != nil {
 		slog.Warn("Failed to marshall", "Err", err)
-		return [509]byte{}, err
+		return []byte{}, err
 	}
 
 	return marshalledRespRelayCellPayload, nil

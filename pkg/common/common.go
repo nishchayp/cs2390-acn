@@ -78,6 +78,8 @@ func RelayCellRT(circID uint16, relayCellPayload *protocol.RelayCellPayload, cir
 	// Add peels to onion (encrypt)
 	var encryptedMarshalledPayload [protocol.CellPayloadSize]byte
 	copy(encryptedMarshalledPayload[:], marshalledPayload[:]) // This would mean payload followed by some 0s
+	encryptedMarshalledPayload[protocol.CellPayloadSize-2] = byte(len(marshalledPayload) >> 8)
+	encryptedMarshalledPayload[protocol.CellPayloadSize-1] = byte(len(marshalledPayload) & 0xFF)
 	for i := int(destHopNum); i >= 0; i-- {
 		encryptedMarshalledPayload, err = crypto.EncryptWrapper(encryptedMarshalledPayload, circuit.Path[i].SharedSymKey)
 		if err != nil {

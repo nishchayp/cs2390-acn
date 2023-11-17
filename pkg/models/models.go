@@ -23,7 +23,7 @@ type OnionProxy struct {
 }
 
 type CellHandlerFunc = func(*OnionRouter, net.Conn, *protocol.Cell)
-type RelayCellHandlerFunc = func(*OnionRouter, uint16, *protocol.RelayCellPayload) ([protocol.CellPayloadSize]byte, error)
+type RelayCellHandlerFunc = func(*OnionRouter, uint16, *protocol.RelayCellPayload) ([]byte, error)
 
 type CircuitLink struct {
 	SharedSymKey   []byte

@@ -206,14 +206,26 @@ func (payload *CreatedCellPayload) Unmarshall(data []byte) error {
 }
 
 // Marshall serializes the RelayCellPayload to bytes.
-func (payload *RelayCellPayload) Marshall() ([RelayHeaderSize + RelayPayloadSize]byte, error) {
-	var buf [RelayHeaderSize + RelayPayloadSize]byte
-	binary.BigEndian.PutUint16(buf[:2], payload.StreamID)
-	copy(buf[2:2+DigestSize], payload.Digest[:])
-	binary.BigEndian.PutUint16(buf[2+DigestSize:4+DigestSize], payload.Len)
-	buf[4+DigestSize] = byte(payload.Cmd)
-	copy(buf[RelayHeaderSize:], payload.Data[:])
-	return buf, nil
+func (payload *RelayCellPayload) Marshall() ([]byte, error) {
+	buf := new(bytes.Buffer)
+
+	if err := binary.Write(buf, binary.BigEndian, payload.StreamID); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(payload.Digest[:]); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.BigEndian, payload.Len); err != nil {
+		return nil, err
+	}
+	if err := buf.WriteByte(byte(payload.Cmd)); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(payload.Data[:payload.Len]); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
 
 // Unmarshall deserializes the bytes into a RelayCellPayload.

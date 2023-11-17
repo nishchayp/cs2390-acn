@@ -33,8 +33,7 @@ func GenerateAESKey() ([]byte, error) {
 		slog.Error("Error generating AES key:", err)
 		return nil, err
 	}
-	slog.Info("AES key generated successfully.")
-	slog.Debug("Key is %v", key)
+	slog.Info("AES key generated successfully.", "Key = ", key)
 	return key, nil
 }
 
