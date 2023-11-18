@@ -47,13 +47,27 @@ func RunREPL() {
 		case "exit":
 			os.Exit(0)
 		case "show-circuit":
-			// TODO: print current path
+			fmt.Println("Current circuit path:")
+			for circID, link := range self.CircuitLinkMap {
+				fmt.Printf("Circuit ID: %d\n", circID)
+				//fmt.Printf("Link: %s\n", link)
+				fmt.Printf("SymKey: %s\n", link.SharedSymKey)
+				fmt.Printf("Next Circ ID: %s\n", link.NextCircID)
+				fmt.Printf("Next port: %s\n", link.NextORAddrPort)
+				fmt.Println("----------------------")
+			}
 		case "establish-circuit":
 			// TODO: create circuit
 		case "send":
 			// destIp := words[1]
 			// message := strings.Join(words[2:], " ")
 			// protocol.SendTest(ipStack, destIp, message)
+		case "display-metadata": // Temporary for debugging ORs
+			fmt.Printf("Circuit ID Counter: %d\n", self.CircIDCounter)
+			fmt.Printf("Curve: %s\n", self.Curve)
+			fmt.Printf("CircuitLinkMap: %s\n", self.CircuitLinkMap)
+			fmt.Printf("CellHandlerRegistry: %s\n", self.CellHandlerRegistry)
+			fmt.Printf("RelayCellHandlerRegistry: %s\n", self.RelayCellHandlerRegistry)
 		default:
 			fmt.Println("Invalid command:")
 			// ListCommands()
@@ -78,7 +92,7 @@ func ServeClient(conn net.Conn) {
 	// Call the appropriate handler
 	handlerFunc, ok := self.CellHandlerRegistry[protocol.CmdType(cell.Cmd)]
 	if !ok {
-		slog.Warn("Dropping cell", "unsuported cell cmd", cell.Cmd)
+		slog.Warn("Dropping cell", "unsupported cell cmd", cell.Cmd)
 		return
 	}
 	handlerFunc(self, conn, &cell)
@@ -121,6 +135,9 @@ func main() {
 	// - Port
 	// - Public key (for RSA)
 	// tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
+	//fmt.Println("Test Debug 1234")
+
+	
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%s", port))
 	if err != nil {
 		slog.Error("Failed to set up a port to listen for tcp traffic.", "Err", err)
