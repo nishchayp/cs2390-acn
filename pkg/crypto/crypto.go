@@ -93,7 +93,7 @@ func EncryptData(data, key []byte) ([]byte, error) {
 	stream := cipher.NewCTR(block, nonce)
 	stream.XORKeyStream(ciphertext, data)
 
-	slog.Debug("Data encrypted successfully.", "Plaintext: ", string(data), "Ciphertext: ", string(ciphertext))
+	slog.Debug("Data encrypted successfully.")
 	return append(nonce, ciphertext...), nil
 }
 
@@ -141,7 +141,7 @@ func DecryptData(data, key []byte) ([]byte, error) {
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)
 
-	slog.Debug("Data encrypted successfully.", "Plaintext: ", string(plaintext), "Ciphertext: ", string(ciphertext))
+	slog.Debug("Data encrypted successfully.")
 	return plaintext, nil
 }
 

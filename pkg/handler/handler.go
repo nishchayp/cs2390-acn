@@ -83,27 +83,31 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 
 	// Remove a onion peel since it is a relay cell
 	// Decrypt the cell payload with the shared secret.
+	slog.Debug("[OR] Before encryption: ", "relayCell.Data", relayCell.Data)
 	decryptedPayload, err := crypto.DecryptWrapper(relayCell.Data, circuitLink.SharedSymKey)
 	if err != nil {
 		slog.Error("Failed to decrypt relay cell payload", "Err", err)
 		return
 	}
-
 	// Parse the decrypted payload into a RelayCellPayload structure.
 	var relayPayload protocol.RelayCellPayload
 	err = relayPayload.Unmarshall(decryptedPayload[:])
+	slog.Debug("[OR] After encryption and Unmarshall: ", "relayCell Payload", decryptedPayload)
 	if err != nil {
 		slog.Warn("Failed to unmarshal relay cell payload", "Err", err)
 		return
 	}
-	hashedData := crypto.HashDigest(relayPayload.Data[:])
+	var dataToBeHashed [protocol.RelayPayloadSize]byte
+	copy(dataToBeHashed[:], relayPayload.Data[:protocol.RelayPayloadSize-2])
+
+	hashedData := crypto.HashDigest(dataToBeHashed[:])
+	slog.Info("[OR1 digest]", "\nrelayPayload.data: ", dataToBeHashed, "\n hashedData: ", hashedData)
+	slog.Debug("[Compare]", "hashedData:", hashedData, "Digest", relayPayload.Digest)
 	// Handle according to the relay cell payload
 	var marshalledRespRelayPayload []byte
 	// if digest != hash(data), you are just a transit, forward the cell with a peel removed (decrypted) and CircID changed
 	if !bytes.Equal(hashedData[:], relayPayload.Digest[:]) {
-
 		slog.Debug("RelayCellForward", "Self:", self, "CircID", relayCell.CircID, "Payload:", &relayPayload)
-
 		marshalledRespRelayPayload, err = RelayCellForwardHandler(self, relayCell.CircID, &relayPayload)
 		if err != nil {
 			slog.Warn("Failed to forward relay cell")
@@ -245,7 +249,10 @@ func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayloa
 		slog.Warn("Failed to marshall", "Err", err)
 		return []byte{}, err
 	}
-	digest := crypto.HashDigest(marshalledRelayExtendedCellPayload)
+	var dataToBeHashed [protocol.RelayPayloadSize]byte
+	copy(dataToBeHashed[:], marshalledRelayExtendedCellPayload[:protocol.RelayPayloadSize-2])
+
+	digest := crypto.HashDigest(dataToBeHashed[:])
 
 	respRelayCellPayload := protocol.RelayCellPayload{
 		StreamID: 0, // TODO: Set the StreamID if needed in the future
@@ -253,7 +260,6 @@ func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayloa
 		Len:      uint16(len(marshalledRelayExtendedCellPayload)),
 		Cmd:      protocol.Extend,
 	}
-	copy(respRelayCellPayload.Digest[:], digest[:]) // CONSIDER: removing as already digest added
 	copy(respRelayCellPayload.Data[:], marshalledRelayExtendedCellPayload)
 
 	marshalledRespRelayCellPayload, err := respRelayCellPayload.Marshall()
