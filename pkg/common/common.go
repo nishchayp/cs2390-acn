@@ -50,7 +50,7 @@ func CreateCellRT(circID uint16, createCellPayload *protocol.CreateCellPayload, 
 		slog.Warn("Failed to unmarshall, Err", "Err", err)
 		return nil, err
 	}
-
+	slog.Info("*******Created Cell Received!********")
 	return &createdCellPayload, nil
 }
 
@@ -88,7 +88,6 @@ func RelayCellRT(circID uint16, relayCellPayload *protocol.RelayCellPayload, cir
 		}
 	}
 	copy(relayCell.Data[:], encryptedMarshalledPayload[:])
-	slog.Info("***[OP encrypt]***", "encryptedMarshalledPayload: ", encryptedMarshalledPayload)
 	err = relayCell.Send(conn)
 	if err != nil {
 		slog.Warn("Failed to send relay cell", "Err", err)
@@ -133,7 +132,6 @@ func RelayCellExtendRT(circID uint16, relayExtendCellPayload *protocol.RelayExte
 	copy(dataToBeHashed[:], marshalledPayload[:])
 
 	digest := crypto.HashDigest(dataToBeHashed[:])
-	slog.Info("***[OP digest]***", "dataToBeHashed: ", marshalledPayload, "hashed degest based on this data: ", digest)
 	relayCellPayload := protocol.RelayCellPayload{
 		StreamID: 0, // TODO: Set the StreamID if needed in the future
 		Digest:   [protocol.DigestSize]byte(digest),

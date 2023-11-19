@@ -281,7 +281,8 @@ func (payload *RelayExtendCellPayload) Unmarshall(data []byte) error {
 		}
 	}
 	// Unmarshall the AddrPort
-	err = payload.NextORAddr.UnmarshalBinary(data[MarshalledPublicKeySize:])
+	// CHECK: 6 is for 9091, but it may not always be 6 bytes.
+	err = payload.NextORAddr.UnmarshalBinary(data[MarshalledPublicKeySize : MarshalledPublicKeySize+6])
 	if err != nil {
 		return err
 	}
@@ -290,23 +291,19 @@ func (payload *RelayExtendCellPayload) Unmarshall(data []byte) error {
 
 // Marshall serializes the RelayExtendedCellPayload to bytes.
 func (payload *RelayExtendedCellPayload) Marshall() ([]byte, error) {
-	buf := make([]byte, CellPayloadSize)
+	buf := new(bytes.Buffer)
 	marshalledPubKey, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
 	if err != nil {
 		slog.Warn("Failed to marshall.", "Err", err)
 		return []byte{}, err
 	}
-	copy(buf, marshalledPubKey)
-	copy(buf[MarshalledPublicKeySize:], payload.SharedSymKeyChecksum[:])
-	return buf, nil
+	buf.Write(marshalledPubKey)
+	buf.Write(payload.SharedSymKeyChecksum[:])
+	return buf.Bytes(), nil
 }
 
-// Unmarshall deserializes the bytes into a RelayExtendeCellPayload.
+// Unmarshall deserializes the bytes into a RelayExtendedCellPayload.
 func (payload *RelayExtendedCellPayload) Unmarshall(data []byte) error {
-	if len(data) < CellPayloadSize {
-		slog.Warn("Invalid cell data")
-		return errors.New("Incorrect number of bytes recv")
-	}
 	pub, err := x509.ParsePKIXPublicKey(data[:MarshalledPublicKeySize])
 	if err != nil {
 		slog.Warn("Failed to unmarshall, from public key")

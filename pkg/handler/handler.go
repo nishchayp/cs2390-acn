@@ -108,7 +108,7 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 	// if digest != hash(data), you are just a transit, forward the cell with a peel removed (decrypted) and CircID changed
 	if !bytes.Equal(hashedData[:], relayPayload.Digest[:]) {
 		slog.Debug("RelayCellForward", "Self:", self, "CircID", relayCell.CircID, "Payload:", &relayPayload)
-		marshalledRespRelayPayload, err = RelayCellForwardHandler(self, relayCell.CircID, &relayPayload)
+		marshalledRespRelayPayload, err = RelayCellForwardHandler(self, relayCell.CircID, decryptedPayload)
 		if err != nil {
 			slog.Warn("Failed to forward relay cell")
 			return
@@ -161,7 +161,8 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 }
 
 // Peel and forward a cell and then get the response and add peel and send it back
-func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPayload *protocol.RelayCellPayload) ([]byte, error) {
+// CHECK: we should directly use decrypted(from OR1) cell payload as the Data field for forwardRelayCell
+func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, marshalledData [protocol.CellPayloadSize]byte) ([]byte, error) {
 	circuitLink, exists := self.CircuitLinkMap[circID]
 	if !exists {
 		slog.Warn("Circuit not found for relay cell", "CircID", circID)
@@ -177,12 +178,7 @@ func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPaylo
 		CircID: circuitLink.NextCircID,
 		Cmd:    uint8(protocol.Relay),
 	}
-	marshalledRelayPayload, err := relayPayload.Marshall()
-	if err != nil {
-		slog.Warn("Failed to marshall relay payload.", "Err", err)
-		return []byte{}, err
-	}
-	copy(forwardRelayCell.Data[:], marshalledRelayPayload[:])
+	copy(forwardRelayCell.Data[:], marshalledData[:])
 
 	// Create a output socket and connect to entry OR
 	forwarderConn, err := net.Dial("tcp4", circuitLink.NextORAddrPort.String())
@@ -237,6 +233,8 @@ func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayloa
 	circuitLink.NextORAddrPort = relayExtendCellPayload.NextORAddr
 	self.CircuitLinkMap[circID] = circuitLink
 	self.CircIDCounter++
+	slog.Info("after received CreatedCell: ", "CircuitLinkMap", self.CircuitLinkMap, "CircIDCounter", self.CircIDCounter)
+	slog.Info("CreatedCell: ", "Content", createdCellPayload)
 
 	// From the response create a relay extended cell
 	relayExtendedCellPayload := protocol.RelayExtendedCellPayload{
@@ -250,7 +248,7 @@ func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayloa
 		return []byte{}, err
 	}
 	var dataToBeHashed [protocol.RelayPayloadSize]byte
-	copy(dataToBeHashed[:], marshalledRelayExtendedCellPayload[:protocol.RelayPayloadSize-2])
+	copy(dataToBeHashed[:], marshalledRelayExtendedCellPayload[:])
 
 	digest := crypto.HashDigest(dataToBeHashed[:])
 
