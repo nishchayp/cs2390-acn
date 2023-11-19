@@ -52,7 +52,7 @@ func RunREPL() {
 				fmt.Printf("Circuit ID: %d\n", circID)
 				//fmt.Printf("Link: %s\n", link)
 				fmt.Printf("SymKey: %s\n", link.SharedSymKey)
-				fmt.Printf("Next Circ ID: %s\n", link.NextCircID)
+				fmt.Printf("Next Circ ID: %d\n", link.NextCircID)
 				fmt.Printf("Next port: %s\n", link.NextORAddrPort)
 				fmt.Println("----------------------")
 			}
@@ -79,15 +79,17 @@ func RunREPL() {
 // Receives a connection, recvs cell, calls the handler based on cell
 func ServeClient(conn net.Conn) {
 	defer conn.Close()
-
 	// Recv a cell
 	var cell protocol.Cell
 	err := cell.Recv(conn)
 	if err != nil {
+		slog.Debug("Received Cell???", "Cmd", cell.Cmd, "Data", cell.Data)
+
 		slog.Error("Failed to recv cell over tcp.", "Err", err)
 	}
 
-	slog.Debug("Cell", "value", cell)
+	//slog.Debug("Cell", "value", cell)
+	slog.Debug("Received Cell!!!", "Cmd", cell.Cmd, "Data", cell.Data, "value", cell)
 
 	// Call the appropriate handler
 	handlerFunc, ok := self.CellHandlerRegistry[protocol.CmdType(cell.Cmd)]
@@ -95,6 +97,8 @@ func ServeClient(conn net.Conn) {
 		slog.Warn("Dropping cell", "unsupported cell cmd", cell.Cmd)
 		return
 	}
+	//slog.Debug("Handler Func", "Cmd", cell.Cmd, "Data", cell.Data, "Func", handlerFunc)
+
 	handlerFunc(self, conn, &cell)
 
 }

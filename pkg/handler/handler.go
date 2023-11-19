@@ -101,6 +101,9 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 	var marshalledRespRelayPayload []byte
 	// if digest != hash(data), you are just a transit, forward the cell with a peel removed (decrypted) and CircID changed
 	if !bytes.Equal(hashedData[:], relayPayload.Digest[:]) {
+
+		slog.Debug("RelayCellForward", "Self:", self, "CircID", relayCell.CircID, "Payload:", &relayPayload)
+
 		marshalledRespRelayPayload, err = RelayCellForwardHandler(self, relayCell.CircID, &relayPayload)
 		if err != nil {
 			slog.Warn("Failed to forward relay cell")
@@ -160,6 +163,7 @@ func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, relayPaylo
 		slog.Warn("Circuit not found for relay cell", "CircID", circID)
 		return []byte{}, errors.New("circuit not found for relay cell")
 	}
+	slog.Debug("CircuitLink Relay", "NextCircID", circuitLink.NextCircID, "CircLink", self.CircuitLinkMap[circID], "CircID", circID)
 
 	if circuitLink.NextCircID == protocol.InvalidCircId { // Does not have a link to forward, it's the last link
 		slog.Warn("No next link to forward to")
