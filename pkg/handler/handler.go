@@ -138,7 +138,9 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 	// Add ISO 10126-2 padding before encrypt.
 	var temp [protocol.CellPayloadSize]byte
 	payloadLength := len(marshalledRespRelayPayload)
-	if payloadLength > protocol.CellPayloadSize-1 {
+	slog.Debug("Payload", "Len:", payloadLength, "marshalled", marshalledRespRelayPayload, "RespRelay:", respRelayCell, "size", protocol.CellPayloadSize)
+
+	if payloadLength > protocol.CellPayloadSize {
 		slog.Error("Payload exceeds maximum length!", "Err", err)
 		return
 	}
