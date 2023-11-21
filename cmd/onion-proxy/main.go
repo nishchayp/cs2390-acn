@@ -222,6 +222,11 @@ func RunREPL() {
 			os.Exit(0)
 		case "show-circuit":
 			// TODO: print current path
+			fmt.Printf("Circuit ID Counter: %d\n", self.CircIDCounter)
+			fmt.Printf("CircuitMap: %s\n", self.CircuitMap)
+			fmt.Printf("Curve: %s\n", self.Curve)
+			//fmt.Printf("CellHandlerRegistry: %s\n", self.CellHandlerRegistry)
+			//fmt.Printf("RelayCellHandlerRegistry: %s\n", self.RelayCellHandlerRegistry)
 		case "establish-circuit", "est-ckt":
 			err := EstablishCircuit()
 			if err != nil {
@@ -231,9 +236,38 @@ func RunREPL() {
 			}
 			// TODO: create circuit
 		case "send":
-			// destIp := words[1]
-			// message := strings.Join(words[2:], " ")
-			// protocol.SendTest(ipStack, destIp, message)
+			if len(words) < 3 {
+				fmt.Println("Invalid command. Usage: send <destination IP> <message>")
+				break
+			}
+		
+			// Assuming you have an established circuit, get the latest circuit ID
+			circID := self.CircIDCounter - 1
+			circuit, exists := self.CircuitMap[circID]
+			if !exists {
+				fmt.Println("No established circuit.")
+				break
+			}
+		
+			//destIP := words[1]
+			message := strings.Join(words[2:], " ")
+		
+			// Create a RelayCellPayload with the message
+			relayPayload := protocol.RelayCellPayload{
+				StreamID: 0, // You may need to assign a unique stream ID
+				Digest:   crypto.HashDigest([]byte(message)),
+				Len:      uint16(len(message)),
+				Cmd:      protocol.Data,
+			}
+			copy(relayPayload.Data[:], []byte(message))
+		
+			_, err := common.RelayCellRT(circID, &relayPayload, &circuit, uint(len(circuit.Path)-1))
+			if err != nil {
+				fmt.Println("Failed to send message through the circuit.", err)
+			} else {
+				fmt.Println("Message sent through the circuit.")
+			}
+		
 		default:
 			fmt.Println("Invalid command:")
 			// ListCommands()
