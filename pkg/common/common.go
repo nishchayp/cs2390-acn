@@ -4,6 +4,7 @@ import (
 	"cs2390-acn/pkg/crypto"
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -154,4 +155,43 @@ func RelayCellExtendRT(circID uint16, relayExtendCellPayload *protocol.RelayExte
 	}
 
 	return &relayExtendedCellPayload, nil
+}
+
+// Send a data cell and get back a data cell, return nil.
+func RelayCellDataRT(circID uint16, relayDataCellPayload *protocol.RelayDataCellPayload, circuit *models.Circuit, destHopNum uint) error {
+
+	// Marshall Data, construct and send the RelayDataCell
+	marshalledPayload, err := relayDataCellPayload.Marshall()
+	if err != nil {
+		slog.Warn("Failed to marshall relayDataCell", "Err", err)
+		return err
+	}
+	var dataToBeHashed [protocol.RelayPayloadSize]byte
+	copy(dataToBeHashed[:], marshalledPayload[:])
+
+	digest := crypto.HashDigest(dataToBeHashed[:])
+	relayCellPayload := protocol.RelayCellPayload{
+		StreamID: 0, // TODO: Set the StreamID if needed in the future
+		Digest:   [protocol.DigestSize]byte(digest),
+		Len:      uint16(len(marshalledPayload)),
+		Cmd:      protocol.Data,
+	}
+	copy(relayCellPayload.Data[:], marshalledPayload)
+
+	// Receive respCell as RelayDataCell
+	respRelayCellPayload, err := RelayCellRT(circID, &relayCellPayload, circuit, destHopNum)
+	if err != nil {
+		slog.Warn("Failed to send recv relay data cell from RelayCellRT", "Err", err)
+		return err
+	}
+
+	var relayRespDataCellPayload protocol.RelayDataCellPayload
+	err = relayRespDataCellPayload.Unmarshall(respRelayCellPayload.Data[:respRelayCellPayload.Len])
+	if err != nil {
+		slog.Warn("Failed to unmarshall", "Err", err)
+		return err
+	}
+	// Print out the Data received from destination
+	fmt.Printf("Data Sent: %s\n", relayRespDataCellPayload.Data)
+	return nil
 }

@@ -62,6 +62,10 @@ type RelayExtendCellPayload struct {
 	NextORAddr netip.AddrPort
 }
 
+type RelayDataCellPayload struct {
+	Data string
+}
+
 type RelayExtendedCellPayload struct {
 	PublicKey            *ecdh.PublicKey
 	SharedSymKeyChecksum [SHA256ChecksumSize]byte
@@ -75,6 +79,8 @@ type CreatedCellPayload struct {
 	PublicKey            *ecdh.PublicKey
 	SharedSymKeyChecksum [SHA256ChecksumSize]byte
 }
+
+/************** CellPayload **************/
 
 // Marshall serializes the CELL to bytes.
 func (cell *Cell) Marshall() ([]byte, error) {
@@ -133,6 +139,8 @@ func (cell *Cell) Recv(conn net.Conn) error {
 	return nil
 }
 
+/************** CreateCellPayload **************/
+
 // Marshall serializes the CreateCellPayload to bytes.
 func (payload *CreateCellPayload) Marshall() ([]byte, error) {
 	// var buf [CellPayloadSize]byte
@@ -168,6 +176,8 @@ func (payload *CreateCellPayload) Unmarshall(data []byte) error {
 	}
 	return nil
 }
+
+/************** CreatedCellPayload **************/
 
 // Marshall serializes the CreatedCellPayload to bytes.
 func (payload *CreatedCellPayload) Marshall() ([]byte, error) {
@@ -205,6 +215,8 @@ func (payload *CreatedCellPayload) Unmarshall(data []byte) error {
 	return nil
 }
 
+/************** RelayCellPayload **************/
+
 // Marshall serializes the RelayCellPayload to bytes.
 func (payload *RelayCellPayload) Marshall() ([]byte, error) {
 	buf := new(bytes.Buffer)
@@ -240,6 +252,8 @@ func (payload *RelayCellPayload) Unmarshall(data []byte) error {
 	copy(payload.Data[:], data[RelayHeaderSize:])
 	return nil
 }
+
+/************** RelayExtendCellPayload **************/
 
 // Marshall converts ExtendCellPayload into bytes.
 func (payload *RelayExtendCellPayload) Marshall() ([]byte, error) {
@@ -289,6 +303,8 @@ func (payload *RelayExtendCellPayload) Unmarshall(data []byte) error {
 	return nil
 }
 
+/************** RelayExtendedCellPayload **************/
+
 // Marshall serializes the RelayExtendedCellPayload to bytes.
 func (payload *RelayExtendedCellPayload) Marshall() ([]byte, error) {
 	buf := new(bytes.Buffer)
@@ -319,4 +335,27 @@ func (payload *RelayExtendedCellPayload) Unmarshall(data []byte) error {
 	}
 	copy(payload.SharedSymKeyChecksum[:], data[MarshalledPublicKeySize:MarshalledPublicKeySize+SHA256ChecksumSize])
 	return nil
+}
+
+/************** RelayDataCellPayload **************/
+// Unmarshall takes a byte slice and stores it as a string in the struct.
+func (payload *RelayDataCellPayload) Unmarshall(data []byte) error {
+	if data == nil {
+		return errors.New("data cannot be nil")
+	}
+	payload.Data = string(data)
+	return nil
+}
+
+// Marshall returns the Data field as a byte slice.
+func (payload *RelayDataCellPayload) Marshall() ([]byte, error) {
+	if payload.Data == "" {
+		return nil, errors.New("data is empty")
+	}
+	dataBytes := []byte(payload.Data)
+	if len(dataBytes) > RelayPayloadSize {
+		return nil, errors.New("exceed length limit")
+	}
+
+	return dataBytes, nil
 }

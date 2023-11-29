@@ -32,6 +32,7 @@ func InitializeSelf() (*models.OnionRouter, error) {
 
 	// Build RelayCellHandlerRegistry registry
 	or.RelayCellHandlerRegistry[protocol.Extend] = handler.RelayCellExtendHandler
+	or.RelayCellHandlerRegistry[protocol.Data] = handler.RelayCellDataHandler
 
 	return or, nil
 }
@@ -141,7 +142,6 @@ func main() {
 	// tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
 	//fmt.Println("Test Debug 1234")
 
-	
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%s", port))
 	if err != nil {
 		slog.Error("Failed to set up a port to listen for tcp traffic.", "Err", err)

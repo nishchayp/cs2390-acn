@@ -132,83 +132,22 @@ func EstablishCircuit() error {
 	return nil
 }
 
-// func SendRelayExtendCell(nextHopPublicKey *ecdh.PublicKey) {
-// 	// Construct the payload with OP public key (RSA encrypted) and next hop's IP (plain)
-// 	// For RSA encryption, use the provided public key of the next hop
-// 	// Since we're skipping the RSA encryption part, I'm directly marshalling the public key
-// 	_, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
-// 	// sessionPrivKey unused for now (not received any response yet)
-// 	if err != nil {
-// 		slog.Error("Failed to generate session key pair", "Err", err)
-// 		return
-// 	}
-// 	nextORHop := self.CurrCircuit.Path[1]
+func SendData(message string) error {
+	// Assuming you have an established circuit, get the latest circuit ID
+	circID := self.CircIDCounter - 1
+	circuit, exists := self.CircuitMap[circID]
+	if !exists {
+		slog.Error("Failed to find the destination circuit.")
+	}
 
-// 	// 　Marshall Address
-// 	relayExtendCellPayload := protocol.RelayExtendCellPayload{
-// 		PublicKey:  sessionPubKey, // RSA_Enc(sessionPubKey, OR2's public key)
-// 		NextORAddr: nextORHop.AddrPort,
-// 	}
-
-// 	marshalledExtendPayload, _ := relayExtendCellPayload.Marshall()
-
-// 	// marshalledORHop, err := models.MarshallORHop(nextORHop)
-// 	// if err != nil {
-// 	// 	slog.Error("Failed to marshal nextORHop", "Err", err)
-// 	// 	return err
-// 	// }
-
-// 	// marshalledPubKey, err := x509.MarshalPKIXPublicKey(sessionPubKey)
-// 	// if err != nil {
-// 	// 	slog.Error("Failed to marshal public key", "Err", err)
-// 	// 	return err
-// 	// }
-
-// 	// // Data = ORHop + PubKey
-// 	// dataPayload := append(marshalledPubKey, marshalledORHop...)
-
-// 	// // Truncate or pad the payload as necessary to fit the relay cell size
-// 	// if len(dataPayload) < protocol.RelayPayloadSize {
-// 	// 	dataPayload = append(dataPayload, make([]byte, protocol.RelayPayloadSize-len(dataPayload))...)
-// 	// } else {
-// 	// 	dataPayload = dataPayload[:protocol.RelayPayloadSize]
-// 	// }
-
-// 	digest := crypto.HashDigest(marshalledExtendPayload)
-
-// 	// Construct the relay cell payload
-// 	relayPayload := protocol.RelayCellPayload{
-// 		StreamID: 0, // TODO: Set the StreamID if needed in the future
-// 		Digest:   [protocol.DigestSize]byte(digest),
-// 		Len:      uint16(len(marshalledExtendPayload)),
-// 		Cmd:      protocol.Extend,
-// 	}
-// 	copy(relayPayload.Data[:], marshalledExtendPayload)
-// 	// Encrypt the payload using the shared symmetric key with the Entry OR
-// 	sharedSecret := self.CurrCircuit.Path[0].SharedSymKey
-// 	marshalledPayload, err := relayPayload.Marshall()
-// 	if err != nil {
-// 		slog.Error("Failed to marshall relay payload", "Err", err)
-// 		return
-// 	}
-// 	encryptedRelayPayload, err := crypto.EncryptData(sharedSecret, marshalledPayload[:])
-// 	if err != nil {
-// 		slog.Error("Failed to encrypt marshalled relay payload", "Err", err)
-// 		return
-// 	}
-
-// 	// Create a relay cell and send it
-// 	relayCell := protocol.Cell{
-// 		CircID: self.CurrCircuit.Path[0].CircID, // Use the circuit ID for the entry node
-// 		Cmd:    uint8(protocol.Relay),
-// 	}
-// 	copy(relayCell.Data[:], encryptedRelayPayload)
-
-// 	relayCell.Send(self.CurrCircuit.EntryConn)
-
-// 	respRelayCell := protocol.Cell{}
-// 	respRelayCell.Recv(self.CurrCircuit.EntryConn)
-// }
+	// destIP := words[1], not used for now
+	relayDataPayload := protocol.RelayDataCellPayload{
+		Data: message,
+	}
+	// TODO: currently send to the last OR in the path as destHopNum. Maybe we will choose the hop in the future.
+	err := common.RelayCellDataRT(circID, &relayDataPayload, &circuit, uint(len(circuit.Path)-1))
+	return err
+}
 
 func RunREPL() {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -240,34 +179,14 @@ func RunREPL() {
 				fmt.Println("Invalid command. Usage: send <destination IP> <message>")
 				break
 			}
-		
-			// Assuming you have an established circuit, get the latest circuit ID
-			circID := self.CircIDCounter - 1
-			circuit, exists := self.CircuitMap[circID]
-			if !exists {
-				fmt.Println("No established circuit.")
-				break
-			}
-		
-			//destIP := words[1]
 			message := strings.Join(words[2:], " ")
-		
-			// Create a RelayCellPayload with the message
-			relayPayload := protocol.RelayCellPayload{
-				StreamID: 0, // You may need to assign a unique stream ID
-				Digest:   crypto.HashDigest([]byte(message)),
-				Len:      uint16(len(message)),
-				Cmd:      protocol.Data,
-			}
-			copy(relayPayload.Data[:], []byte(message))
-		
-			_, err := common.RelayCellRT(circID, &relayPayload, &circuit, uint(len(circuit.Path)-1))
+			err := SendData(message)
 			if err != nil {
 				fmt.Println("Failed to send message through the circuit.", err)
 			} else {
 				fmt.Println("Message sent through the circuit.")
 			}
-		
+
 		default:
 			fmt.Println("Invalid command:")
 			// ListCommands()
