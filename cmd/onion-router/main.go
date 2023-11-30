@@ -158,4 +158,8 @@ func main() {
 	go AcceptClients(tcpListner)
 
 	RunREPL()
+
+	// Keep the main goroutine running without doing anything
+	select {}
+
 }
