@@ -3,7 +3,9 @@ package main
 import (
 	"bufio"
 	"crypto/ecdh"
+	"crypto/ecdh"
 	"cs2390-acn/pkg/handler"
+	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
 	//"cs2390-acn/pkg/oniondb"
@@ -18,6 +20,8 @@ import (
 
 // Global declaration
 var self *models.OnionRouter
+// Global declaration
+var self *models.OnionRouter
 
 // Initialize the instance of Onion Router
 func InitializeSelf() (*models.OnionRouter, error) {
@@ -26,44 +30,14 @@ func InitializeSelf() (*models.OnionRouter, error) {
 		Curve:               ecdh.P256(),
 		CircuitLinkMap:      make(map[uint16]models.CircuitLink),
 	}
+func InitializeSelf() (*models.OnionRouter, error) {
+	or := &models.OnionRouter{
+		CellHandlerRegistry: make(map[protocol.CmdType]models.CellHandlerFunc),
+		Curve:               ecdh.P256(),
+		CircuitLinkMap:      make(map[uint16]models.CircuitLink),
+	}
 	// Build registry
 	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
-
-	// Create a sample DirectoryEntry and Add it to oniondb:
-    /*entry := models.DirectoryEntry{
-        ID:        1,
-        IP:        "192.168.1.100",
-        Port:      8080,
-        PublicKey: "sample_public_key",
-    }
-	_, err := oniondb.InitializeDB()
-	if err != nil {
-		return nil, err
-	}
-	oniondb.AddDataToDB(entry);
-	
-	
-	
-	*/
-	/*
-	// Initialize the database
-	_, err := oniondb.InitializeDB()
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a sample DirectoryEntry and add it to oniondb
-	entry := models.DirectoryEntry{
-		ID:        1,
-		IP:        netip.AddrPort(CONSTRUCTOR),
-		Port:      8080,
-		PublicKey: &ecdh.PublicKey{},
-	}
-	err = oniondb.AddDataToDB(entry)
-	if err != nil {
-		return nil, err
-	}*/
-
 	return or, nil
 }
 

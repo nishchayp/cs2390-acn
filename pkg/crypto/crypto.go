@@ -20,6 +20,8 @@ const (
 	NonceSize          = 16
 	RSABitSize         = 2048
 	SHA256ChecksumSize = 32
+	SHA256DigestSize   = 6
+	PubKeyByteSize     = 65
 )
 
 // GenerateAESKey generates a random AES key.
@@ -151,12 +153,21 @@ func ComputeSharedSecret(privKey *ecdh.PrivateKey, pubKey *ecdh.PublicKey) ([]by
 	return secret, nil
 }
 
-// Can also use this for hash data to get digest?
+// Can also use this for hash data to get digest? -- NO, because digest is 6 bytes, this is 32 bytes
 func Hash(data []byte) [SHA256ChecksumSize]byte {
 	hash := sha256.Sum256(data)
 	slog.Debug("Shared data hashed successfully.")
 	slog.Debug("Hashing done", "data", data, "hash", hash)
 	return hash
+}
+
+// Hash computes a truncated SHA256 hash of the data and returns the first 6 bytes.
+// WARNING: truncating can reduce its security, making it more susceptible to collisions
+func HashDigest(data []byte) [SHA256DigestSize]byte {
+	fullHash := sha256.Sum256(data)
+	var shortHash [SHA256DigestSize]byte
+	copy(shortHash[:], fullHash[:SHA256DigestSize])
+	return shortHash
 }
 
 /*
