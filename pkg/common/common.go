@@ -4,7 +4,6 @@ import (
 	"cs2390-acn/pkg/crypto"
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -51,11 +50,10 @@ func CreateCellRT(circID uint16, createCellPayload *protocol.CreateCellPayload, 
 		slog.Warn("Failed to unmarshall, Err", "Err", err)
 		return nil, err
 	}
-	slog.Info("*******Created Cell Received!********")
 	return &createdCellPayload, nil
 }
 
-// Send a relay cell and get back a realay cell, return the resp relay cell payload
+// Send a relay cell and get back a realay cell, return the resp relay cell payload, always sent by OP
 func RelayCellRT(circID uint16, relayCellPayload *protocol.RelayCellPayload, circuit *models.Circuit, destHopNum uint) (*protocol.RelayCellPayload, error) {
 
 	// Create a output socket and connect to entry OR
@@ -158,13 +156,13 @@ func RelayCellExtendRT(circID uint16, relayExtendCellPayload *protocol.RelayExte
 }
 
 // Send a data cell and get back a data cell, return nil.
-func RelayCellDataRT(circID uint16, relayDataCellPayload *protocol.RelayDataCellPayload, circuit *models.Circuit, destHopNum uint) error {
+func RelayCellDataRT(circID uint16, relayDataCellPayload *protocol.RelayDataCellPayload, circuit *models.Circuit, destHopNum uint) (*protocol.RelayDataCellPayload, error) {
 
 	// Marshall Data, construct and send the RelayDataCell
 	marshalledPayload, err := relayDataCellPayload.Marshall()
 	if err != nil {
 		slog.Warn("Failed to marshall relayDataCell", "Err", err)
-		return err
+		return nil, err
 	}
 	var dataToBeHashed [protocol.RelayPayloadSize]byte
 	copy(dataToBeHashed[:], marshalledPayload[:])
@@ -182,16 +180,16 @@ func RelayCellDataRT(circID uint16, relayDataCellPayload *protocol.RelayDataCell
 	respRelayCellPayload, err := RelayCellRT(circID, &relayCellPayload, circuit, destHopNum)
 	if err != nil {
 		slog.Warn("Failed to send recv relay data cell from RelayCellRT", "Err", err)
-		return err
+		return nil, err
 	}
 
 	var relayRespDataCellPayload protocol.RelayDataCellPayload
 	err = relayRespDataCellPayload.Unmarshall(respRelayCellPayload.Data[:respRelayCellPayload.Len])
 	if err != nil {
 		slog.Warn("Failed to unmarshall", "Err", err)
-		return err
+		return nil, err
 	}
 	// Print out the Data received from destination
-	fmt.Printf("Data Sent: %s\n", relayRespDataCellPayload.Data)
-	return nil
+	slog.Debug("Data Recd", "msg", relayRespDataCellPayload.Data)
+	return &relayRespDataCellPayload, nil
 }

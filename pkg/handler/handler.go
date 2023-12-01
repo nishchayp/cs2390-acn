@@ -7,7 +7,6 @@ import (
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 )
@@ -73,7 +72,9 @@ func CreateCellHandler(self *models.OnionRouter, conn net.Conn, createCell *prot
 
 	createdCell.Send(conn)
 
-	slog.Info("Established Circuit link")
+	slog.Info("Established Circuit link",
+		"From ID", createCell.CircID, "From Addr", conn.LocalAddr(),
+		"To ID", self.CircuitLinkMap[createCell.CircID].NextCircID, "To Addr", "current OR addr")
 }
 
 // Recieves relay cell
@@ -89,6 +90,8 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 		slog.Warn("Circuit not found for relay cell", "CircID", relayCell.CircID)
 		return
 	}
+
+	slog.Info("Recd Relay cell (and responding back)", "From ID", relayCell.CircID, "From Addr", conn.LocalAddr())
 
 	// Remove a onion peel since it is a relay cell
 	// Decrypt the cell payload with the shared secret.
@@ -115,7 +118,7 @@ func RelayCellHandler(self *models.OnionRouter, conn net.Conn, relayCell *protoc
 	copy(dataToBeHashed[:], relayPayload.Data[:protocol.RelayPayloadSize-2])
 
 	hashedData := crypto.HashDigest(dataToBeHashed[:])
-	slog.Info("[OR1 digest]", "\nrelayPayload.data: ", dataToBeHashed, "\n hashedData: ", hashedData)
+	slog.Debug("[OR1 digest]", "\nrelayPayload.data: ", dataToBeHashed, "\n hashedData: ", hashedData)
 	slog.Debug("[Compare]", "hashedData:", hashedData, "Digest", relayPayload.Digest)
 	// Handle according to the relay cell payload
 	// if digest != hash(data), you are just a transit, forward the cell with a peel removed (decrypted) and CircID changed
@@ -218,6 +221,7 @@ func RelayCellForwardHandler(self *models.OnionRouter, circID uint16, marshalled
 		slog.Warn("Failed to forward", "Err", err)
 		return [protocol.CellPayloadSize]byte{}, err
 	}
+	slog.Info("Forward Relay cell (and get back response)", "To ID", self.CircuitLinkMap[circID].NextCircID, "To addr", self.CircuitLinkMap[circID].NextORAddrPort)
 	return respRelayCell.Data, nil
 }
 
@@ -251,9 +255,6 @@ func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayloa
 	circuitLink.NextORAddrPort = relayExtendCellPayload.NextORAddr
 	self.CircuitLinkMap[circID] = circuitLink
 	self.CircIDCounter++
-	slog.Info("after received CreatedCell: ", "CircuitLinkMap", self.CircuitLinkMap, "CircIDCounter", self.CircIDCounter)
-	slog.Info("CreatedCell: ", "Content", createdCellPayload)
-	slog.Info("[Extend sharedSymKey]!!!!", "createdCellPayload.SharedSymKeyChecksum", createdCellPayload.SharedSymKeyChecksum)
 	// From the response create a relay extended cell
 	relayExtendedCellPayload := protocol.RelayExtendedCellPayload{
 		PublicKey:            createdCellPayload.PublicKey,
@@ -284,6 +285,8 @@ func RelayCellExtendHandler(self *models.OnionRouter, circID uint16, relayPayloa
 		return []byte{}, err
 	}
 
+	slog.Info("Extend Relay cell (and get back extended response)", "To ID", self.CircuitLinkMap[circID].NextCircID, "To addr", self.CircuitLinkMap[circID].NextORAddrPort)
+
 	return marshalledRespRelayCellPayload, nil
 }
 
@@ -303,12 +306,11 @@ func RelayCellDataHandler(self *models.OnionRouter, circID uint16, relayPayload 
 		slog.Warn("Failed to unmarshall", "Err", err)
 		return []byte{}, err
 	}
-	printedData := relayDataCellPayload.Data
-	fmt.Printf("Data Reiceived: %s\n", printedData)
+	slog.Debug("Data Reiceived", "Data", relayDataCellPayload.Data)
 
 	// From the response create a relay data resp cell
 	relayDataRespCellPayload := protocol.RelayDataCellPayload{
-		Data: printedData,
+		Data: Reverse(relayDataCellPayload.Data),
 	}
 
 	marshalledRelayDataCellPayload, err := relayDataRespCellPayload.Marshall()
@@ -335,5 +337,15 @@ func RelayCellDataHandler(self *models.OnionRouter, circID uint16, relayPayload 
 		return []byte{}, err
 	}
 
+	slog.Info("Recd Data Relay cell", "Msg recd", relayDataCellPayload.Data, "Msg replied", relayDataRespCellPayload.Data)
+
 	return marshalledRespRelayCellPayload, nil
+}
+
+func Reverse(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
 }
