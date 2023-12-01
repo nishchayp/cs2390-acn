@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/x509"
@@ -8,7 +9,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net"
+	"net/netip"
 )
 
 const (
@@ -22,6 +25,7 @@ const (
 	PublicKeySize           = 56
 	MarshalledPublicKeySize = 91
 	SHA256ChecksumSize      = 32
+	InvalidCircId           = math.MaxUint16
 )
 
 type CmdType uint8
@@ -35,8 +39,9 @@ const (
 type RelayCmdType uint8
 
 const (
-	Data   RelayCmdType = 0
-	Extend RelayCmdType = 1
+	Data     RelayCmdType = 0
+	Extend   RelayCmdType = 1
+	Extended RelayCmdType = 2
 )
 
 type Cell struct {
@@ -52,6 +57,19 @@ type RelayCellPayload struct {
 	Cmd      RelayCmdType
 	Data     [RelayPayloadSize]byte
 }
+type RelayExtendCellPayload struct {
+	PublicKey  *ecdh.PublicKey
+	NextORAddr netip.AddrPort
+}
+
+type RelayDataCellPayload struct {
+	Data string
+}
+
+type RelayExtendedCellPayload struct {
+	PublicKey            *ecdh.PublicKey
+	SharedSymKeyChecksum [SHA256ChecksumSize]byte
+}
 
 type CreateCellPayload struct {
 	PublicKey *ecdh.PublicKey
@@ -61,6 +79,8 @@ type CreatedCellPayload struct {
 	PublicKey            *ecdh.PublicKey
 	SharedSymKeyChecksum [SHA256ChecksumSize]byte
 }
+
+/************** CellPayload **************/
 
 // Marshall serializes the CELL to bytes.
 func (cell *Cell) Marshall() ([]byte, error) {
@@ -119,6 +139,8 @@ func (cell *Cell) Recv(conn net.Conn) error {
 	return nil
 }
 
+/************** CreateCellPayload **************/
+
 // Marshall serializes the CreateCellPayload to bytes.
 func (payload *CreateCellPayload) Marshall() ([]byte, error) {
 	// var buf [CellPayloadSize]byte
@@ -155,11 +177,12 @@ func (payload *CreateCellPayload) Unmarshall(data []byte) error {
 	return nil
 }
 
+/************** CreatedCellPayload **************/
+
 // Marshall serializes the CreatedCellPayload to bytes.
 func (payload *CreatedCellPayload) Marshall() ([]byte, error) {
 	buf := make([]byte, CellPayloadSize)
 	marshalledPubKey, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
-	slog.Debug("Debug", "Marshalled key sz", len(marshalledPubKey))
 	if err != nil {
 		slog.Warn("Failed to marshall.", "Err", err)
 		return []byte{}, err
@@ -190,4 +213,149 @@ func (payload *CreatedCellPayload) Unmarshall(data []byte) error {
 	}
 	copy(payload.SharedSymKeyChecksum[:], data[MarshalledPublicKeySize:MarshalledPublicKeySize+SHA256ChecksumSize])
 	return nil
+}
+
+/************** RelayCellPayload **************/
+
+// Marshall serializes the RelayCellPayload to bytes.
+func (payload *RelayCellPayload) Marshall() ([]byte, error) {
+	buf := new(bytes.Buffer)
+
+	if err := binary.Write(buf, binary.BigEndian, payload.StreamID); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(payload.Digest[:]); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.BigEndian, payload.Len); err != nil {
+		return nil, err
+	}
+	if err := buf.WriteByte(byte(payload.Cmd)); err != nil {
+		return nil, err
+	}
+	if _, err := buf.Write(payload.Data[:payload.Len]); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// Unmarshall deserializes the bytes into a RelayCellPayload.
+func (payload *RelayCellPayload) Unmarshall(data []byte) error {
+	if len(data) < RelayHeaderSize+RelayPayloadSize {
+		return errors.New("incorrect number of bytes to unmarshall RelayCellPayload")
+	}
+	payload.StreamID = binary.BigEndian.Uint16(data[:2])
+	copy(payload.Digest[:], data[2:2+DigestSize])
+	payload.Len = binary.BigEndian.Uint16(data[2+DigestSize : 4+DigestSize])
+	payload.Cmd = RelayCmdType(data[4+DigestSize])
+	copy(payload.Data[:], data[RelayHeaderSize:])
+	return nil
+}
+
+/************** RelayExtendCellPayload **************/
+
+// Marshall converts ExtendCellPayload into bytes.
+func (payload *RelayExtendCellPayload) Marshall() ([]byte, error) {
+	// Marshal the PublicKey using x509
+	pubKeyBytes, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	// Marshal the netip.AddrPort
+	addrPortBytes, err := payload.NextORAddr.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	// Combine the command, public key, and AddrPort into one byte slice
+	buf := new(bytes.Buffer)
+	buf.Write(pubKeyBytes)
+	buf.Write(addrPortBytes)
+	return buf.Bytes(), nil
+}
+
+// Unmarshall parses bytes into an ExtendCellPayload.
+func (payload *RelayExtendCellPayload) Unmarshall(data []byte) error {
+	if len(data) < RelayPayloadSize {
+		slog.Warn("Invalid relay cell data")
+		return errors.New("Incorrect number of bytes recv")
+	}
+
+	pub, err := x509.ParsePKIXPublicKey(data[:MarshalledPublicKeySize])
+	if err != nil {
+		slog.Warn("Failed to unmarshall, from public key")
+		return err
+	}
+	// Assert ecdsa public key and then call ECDH on it to get ecdh pub key
+	payload.PublicKey, err = pub.(*ecdsa.PublicKey).ECDH()
+	if err != nil {
+		if err != nil {
+			slog.Warn("Failed to unmarshall, from public key")
+			return err
+		}
+	}
+	// Unmarshall the AddrPort
+	// CHECK: 6 is for 9091, but it may not always be 6 bytes.
+	err = payload.NextORAddr.UnmarshalBinary(data[MarshalledPublicKeySize : MarshalledPublicKeySize+6])
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+/************** RelayExtendedCellPayload **************/
+
+// Marshall serializes the RelayExtendedCellPayload to bytes.
+func (payload *RelayExtendedCellPayload) Marshall() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	marshalledPubKey, err := x509.MarshalPKIXPublicKey(payload.PublicKey)
+	if err != nil {
+		slog.Warn("Failed to marshall.", "Err", err)
+		return []byte{}, err
+	}
+	buf.Write(marshalledPubKey)
+	buf.Write(payload.SharedSymKeyChecksum[:])
+	return buf.Bytes(), nil
+}
+
+// Unmarshall deserializes the bytes into a RelayExtendedCellPayload.
+func (payload *RelayExtendedCellPayload) Unmarshall(data []byte) error {
+	pub, err := x509.ParsePKIXPublicKey(data[:MarshalledPublicKeySize])
+	if err != nil {
+		slog.Warn("Failed to unmarshall, from public key")
+		return err
+	}
+	// Assert ecdsa public key and then call ECDH on it to get ecdh pub key
+	payload.PublicKey, err = pub.(*ecdsa.PublicKey).ECDH()
+	if err != nil {
+		if err != nil {
+			slog.Warn("Failed to unmarshall, from public key")
+			return err
+		}
+	}
+	copy(payload.SharedSymKeyChecksum[:], data[MarshalledPublicKeySize:MarshalledPublicKeySize+SHA256ChecksumSize])
+	return nil
+}
+
+/************** RelayDataCellPayload **************/
+// Unmarshall takes a byte slice and stores it as a string in the struct.
+func (payload *RelayDataCellPayload) Unmarshall(data []byte) error {
+	if data == nil {
+		return errors.New("data cannot be nil")
+	}
+	payload.Data = string(data)
+	return nil
+}
+
+// Marshall returns the Data field as a byte slice.
+func (payload *RelayDataCellPayload) Marshall() ([]byte, error) {
+	if payload.Data == "" {
+		return nil, errors.New("data is empty")
+	}
+	dataBytes := []byte(payload.Data)
+	if len(dataBytes) > RelayPayloadSize {
+		return nil, errors.New("exceed length limit")
+	}
+
+	return dataBytes, nil
 }

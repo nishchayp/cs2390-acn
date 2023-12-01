@@ -20,12 +20,20 @@ var self *models.OnionRouter
 // Initialize the instance of Onion Router
 func InitializeSelf() (*models.OnionRouter, error) {
 	or := &models.OnionRouter{
-		CellHandlerRegistry: make(map[protocol.CmdType]models.CellHandlerFunc),
-		Curve:               ecdh.P256(),
-		CircuitLinkMap:      make(map[uint16]models.CircuitLink),
+		CircIDCounter:            0,
+		Curve:                    ecdh.P256(),
+		CircuitLinkMap:           make(map[uint16]models.CircuitLink),
+		CellHandlerRegistry:      make(map[protocol.CmdType]models.CellHandlerFunc),
+		RelayCellHandlerRegistry: make(map[protocol.RelayCmdType]models.RelayCellHandlerFunc),
 	}
-	// Build registry
+	// Build CellHandlerRegistry registry
 	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
+	or.CellHandlerRegistry[protocol.Relay] = handler.RelayCellHandler
+
+	// Build RelayCellHandlerRegistry registry
+	or.RelayCellHandlerRegistry[protocol.Extend] = handler.RelayCellExtendHandler
+	or.RelayCellHandlerRegistry[protocol.Data] = handler.RelayCellDataHandler
+
 	return or, nil
 }
 
@@ -40,13 +48,27 @@ func RunREPL() {
 		case "exit":
 			os.Exit(0)
 		case "show-circuit":
-			// TODO: print current path
+			fmt.Println("Current circuit path:")
+			for circID, link := range self.CircuitLinkMap {
+				fmt.Printf("Circuit ID: %d\n", circID)
+				//fmt.Printf("Link: %s\n", link)
+				fmt.Printf("SymKey: %s\n", link.SharedSymKey)
+				fmt.Printf("Next Circ ID: %d\n", link.NextCircID)
+				fmt.Printf("Next port: %s\n", link.NextORAddrPort)
+				fmt.Println("----------------------")
+			}
 		case "establish-circuit":
 			// TODO: create circuit
 		case "send":
 			// destIp := words[1]
 			// message := strings.Join(words[2:], " ")
 			// protocol.SendTest(ipStack, destIp, message)
+		case "display-metadata": // Temporary for debugging ORs
+			fmt.Printf("Circuit ID Counter: %d\n", self.CircIDCounter)
+			fmt.Printf("Curve: %s\n", self.Curve)
+			fmt.Printf("CircuitLinkMap: %s\n", self.CircuitLinkMap)
+			fmt.Printf("CellHandlerRegistry: %s\n", self.CellHandlerRegistry)
+			fmt.Printf("RelayCellHandlerRegistry: %s\n", self.RelayCellHandlerRegistry)
 		default:
 			fmt.Println("Invalid command:")
 			// ListCommands()
@@ -58,22 +80,26 @@ func RunREPL() {
 // Receives a connection, recvs cell, calls the handler based on cell
 func ServeClient(conn net.Conn) {
 	defer conn.Close()
-
 	// Recv a cell
 	var cell protocol.Cell
 	err := cell.Recv(conn)
 	if err != nil {
+		slog.Debug("Received Cell???", "Cmd", cell.Cmd, "Data", cell.Data)
+
 		slog.Error("Failed to recv cell over tcp.", "Err", err)
 	}
 
-	slog.Debug("Cell", "value", cell)
+	//slog.Debug("Cell", "value", cell)
+	slog.Debug("Received Cell!!!", "Cmd", cell.Cmd, "Data", cell.Data, "value", cell)
 
 	// Call the appropriate handler
 	handlerFunc, ok := self.CellHandlerRegistry[protocol.CmdType(cell.Cmd)]
 	if !ok {
-		slog.Warn("Dropping cell", "unsuported cell cmd", cell.Cmd)
+		slog.Warn("Dropping cell", "unsupported cell cmd", cell.Cmd)
 		return
 	}
+	//slog.Debug("Handler Func", "Cmd", cell.Cmd, "Data", cell.Data, "Func", handlerFunc)
+
 	handlerFunc(self, conn, &cell)
 
 }
@@ -91,8 +117,13 @@ func AcceptClients(tcpListner *net.TCPListener) {
 }
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
+
+	if len(os.Args) != 2 {
+		log.Fatalf("usage: %s <port>", os.Args[0])
+	}
+	port := os.Args[1]
 
 	// Setup self instance
 	var err error
@@ -108,7 +139,10 @@ func main() {
 	// - IP
 	// - Port
 	// - Public key (for RSA)
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
+	// tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
+	//fmt.Println("Test Debug 1234")
+
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%s", port))
 	if err != nil {
 		slog.Error("Failed to set up a port to listen for tcp traffic.", "Err", err)
 	}

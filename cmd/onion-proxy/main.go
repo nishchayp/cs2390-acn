@@ -3,12 +3,13 @@ package main
 import (
 	"bufio"
 	"crypto/ecdh"
+	"cs2390-acn/pkg/common"
 	"cs2390-acn/pkg/crypto"
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
+	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/netip"
 	"os"
 	"strings"
@@ -21,91 +22,131 @@ var self *models.OnionProxy
 func InitializeSelf() (*models.OnionProxy, error) {
 	op := &models.OnionProxy{
 		CircIDCounter: 0,
+		CircuitMap:    make(map[uint16]models.Circuit),
 		Curve:         ecdh.P256(),
-	}
-	// Create a empty circuit
-	op.CurrCircuit = &models.Circuit{
-		EntryConn: nil,
-		Path:      []models.ORHop{},
 	}
 	return op, nil
 }
 
-func EstablishEntryORHop() {
-	// Generate session key pair
-	sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
-	if err != nil {
-		slog.Warn("Failed to generate session key pair", "Err", err)
-		return
+// func EstablishEntryORHop() error {
+
+// 	// Generate session key pair
+// 	sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(curve)
+// 	if err != nil {
+// 		slog.Warn("Failed to generate session key pair", "Err", err)
+// 		return []byte{}, err
+// 	}
+
+// 	createCellPayload := protocol.CreateCellPayload{
+// 		PublicKey: sessionPubKey,
+// 	}
+// 	marshalledCreatedCellPayload, err = common.CreateCellHandler(self.CircIDCounter, &createCellPayload)
+// 	if err != nil {
+// 		slog.Warn("Failed to handle relay cell")
+// 		return
+// 	}
+
+// 	sharedSymKey, err := common.EstablishNextHopLink(self.Curve, self.CircIDCounter, self.CurrCircuit.EntryConn)
+// 	if err != nil {
+// 		slog.Warn("Failed to establish entry OR hop", "Err", err)
+// 		return err
+// 	}
+// 	// Update circ id after successful link creation
+// 	self.CurrCircuit.Path[0].CircID = self.CircIDCounter
+// 	self.CircIDCounter++
+// 	self.CurrCircuit.Path[0].SharedSymKey = sharedSymKey
+
+// 	return nil
+// }
+
+func EstablishCircuit() error {
+	circID := self.CircIDCounter
+	_, exists := self.CircuitMap[circID]
+	if exists {
+		slog.Warn("Circuit alread exists for", "CircID", circID)
+		return errors.New("circuit alread exists")
+	}
+	circuit := models.Circuit{}
+	// TODO: change to parse directory
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9090")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9091")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9092")})
+
+	// Establishing circuit with subsequent hops
+	for i := 0; i < len(circuit.Path); i++ {
+
+		// Generate session key pair
+		sessionPrivKey, sessionPubKey, err := crypto.GenerateKeyPair(self.Curve)
+		if err != nil {
+			slog.Warn("Failed to generate session key pair", "Err", err)
+			return err
+		}
+
+		var recvdPublicKey *ecdh.PublicKey
+		var recvdChecksum [protocol.SHA256ChecksumSize]byte
+		if i == 0 { // Special case entry hop
+			createCellPayload := protocol.CreateCellPayload{
+				PublicKey: sessionPubKey,
+			}
+			createdCellPayload, err := common.CreateCellRT(circID, &createCellPayload, circuit.Path[0].AddrPort)
+			if err != nil {
+				slog.Warn("Failed to establish circuit", "Hop", 0, "Err", err)
+			}
+			recvdPublicKey = createdCellPayload.PublicKey
+			recvdChecksum = createdCellPayload.SharedSymKeyChecksum
+		} else {
+			relayExtendCellPayload := protocol.RelayExtendCellPayload{
+				PublicKey:  sessionPubKey,
+				NextORAddr: circuit.Path[i].AddrPort,
+			}
+			relayExtendedCellPayload, err := common.RelayCellExtendRT(circID, &relayExtendCellPayload, &circuit, uint(i-1))
+			if err != nil {
+				slog.Warn("Failed to establish circuit", "Hop", 0, "Err", err)
+			}
+			recvdPublicKey = relayExtendedCellPayload.PublicKey
+			recvdChecksum = relayExtendedCellPayload.SharedSymKeyChecksum
+		}
+
+		// Compute shared secret
+		sharedSymKey, err := crypto.ComputeSharedSecret(sessionPrivKey, recvdPublicKey)
+		if err != nil {
+			slog.Warn("Failed to establish shared secret", "Hop", 0, "Err", err)
+			return err
+		}
+
+		slog.Debug("shared secret", "local", sharedSymKey)
+
+		if crypto.Hash(sharedSymKey) != recvdChecksum {
+			slog.Warn("Failed to compute identical shared secrets", "local checksum", crypto.Hash(sharedSymKey), "recv checksum", recvdChecksum)
+			return err
+		}
+
+		circuit.Path[i].SharedSymKey = sharedSymKey
+		slog.Info("[ADD to Circuit]", "i", i, ", circuit.Path[i] with sharedKey", circuit.Path[i])
 	}
 
-	createCellPayload := protocol.CreateCellPayload{
-		PublicKey: sessionPubKey,
-	}
-	marshalledPayload, err := createCellPayload.Marshall()
-	if err != nil {
-		slog.Warn("Failed to establish ckt.", "Err", err)
-		return
-	}
-
-	createCell := protocol.Cell{
-		CircID: self.CircIDCounter,
-		Cmd:    uint8(protocol.Create),
-	}
-	copy(createCell.Data[:], marshalledPayload)
-	self.CurrCircuit.Path[0].CircID = self.CircIDCounter
+	slog.Info("Circuit Established")
+	self.CircuitMap[circID] = circuit
 	self.CircIDCounter++
 
-	createCell.Send(self.CurrCircuit.EntryConn)
-
-	// Recv created cell as response
-	createdCell := protocol.Cell{}
-	err = createdCell.Recv(self.CurrCircuit.EntryConn)
-	if err != nil {
-		slog.Warn("Failed to recv created cell", "Err", err)
-		return
-	}
-	var createdPayload protocol.CreatedCellPayload
-	err = createdPayload.Unmarshall(createdCell.Data[:])
-	if err != nil {
-		slog.Warn("Failed to unmarshall, Err", "Err", err)
-		return
-	}
-
-	sharedSymKey, err := crypto.ComputeSharedSecret(sessionPrivKey, createdPayload.PublicKey)
-	if err != nil {
-		slog.Error("Failed to compute shared secret", "Err", err)
-		return
-	}
-
-	slog.Debug("shared secrets checksum", "local checksum", crypto.Hash(sharedSymKey), "recv checksum", createdPayload.SharedSymKeyChecksum)
-	slog.Debug("shared secret", "local", sharedSymKey)
-
-	if crypto.Hash(sharedSymKey) != createdPayload.SharedSymKeyChecksum {
-		slog.Warn("Failed to compute identical shared secrets", "local checksum", crypto.Hash(sharedSymKey), "recv checksum", createdPayload.SharedSymKeyChecksum)
-		return
-	}
-	self.CurrCircuit.Path[0].SharedSymKey = sharedSymKey
-
-	slog.Info("Established Entry OR Hop")
+	return nil
 }
 
-func EstablishCircuit() {
-	// TODO: change to parse directory
-	self.CurrCircuit.Path = append(self.CurrCircuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9090")})
-	self.CurrCircuit.Path = append(self.CurrCircuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9091")})
-	self.CurrCircuit.Path = append(self.CurrCircuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9092")})
-
-	// Create a output socket and connect to entry OR
-	conn, err := net.Dial("tcp4", self.CurrCircuit.Path[0].AddrPort.String())
-	if err != nil {
-		slog.Warn("Failed to create a output socket and connect", "Err", err)
-		return
+func SendData(message string) error {
+	// Assuming you have an established circuit, get the latest circuit ID
+	circID := self.CircIDCounter - 1
+	circuit, exists := self.CircuitMap[circID]
+	if !exists {
+		slog.Error("Failed to find the destination circuit.")
 	}
-	self.CurrCircuit.EntryConn = conn
 
-	EstablishEntryORHop()
-
+	// destIP := words[1], not used for now
+	relayDataPayload := protocol.RelayDataCellPayload{
+		Data: message,
+	}
+	// TODO: currently send to the last OR in the path as destHopNum. Maybe we will choose the hop in the future.
+	err := common.RelayCellDataRT(circID, &relayDataPayload, &circuit, uint(len(circuit.Path)-1))
+	return err
 }
 
 func RunREPL() {
@@ -120,13 +161,32 @@ func RunREPL() {
 			os.Exit(0)
 		case "show-circuit":
 			// TODO: print current path
+			fmt.Printf("Circuit ID Counter: %d\n", self.CircIDCounter)
+			fmt.Printf("CircuitMap: %s\n", self.CircuitMap)
+			fmt.Printf("Curve: %s\n", self.Curve)
+			//fmt.Printf("CellHandlerRegistry: %s\n", self.CellHandlerRegistry)
+			//fmt.Printf("RelayCellHandlerRegistry: %s\n", self.RelayCellHandlerRegistry)
 		case "establish-circuit", "est-ckt":
-			EstablishCircuit()
+			err := EstablishCircuit()
+			if err != nil {
+				fmt.Println("Failed to establish circuit.")
+			} else {
+				fmt.Println("Circuit established")
+			}
 			// TODO: create circuit
 		case "send":
-			// destIp := words[1]
-			// message := strings.Join(words[2:], " ")
-			// protocol.SendTest(ipStack, destIp, message)
+			if len(words) < 3 {
+				fmt.Println("Invalid command. Usage: send <destination IP> <message>")
+				break
+			}
+			message := strings.Join(words[2:], " ")
+			err := SendData(message)
+			if err != nil {
+				fmt.Println("Failed to send message through the circuit.", err)
+			} else {
+				fmt.Println("Message sent through the circuit.")
+			}
+
 		default:
 			fmt.Println("Invalid command:")
 			// ListCommands()
@@ -136,7 +196,7 @@ func RunREPL() {
 }
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
 
 	// Setup self instance
@@ -149,88 +209,4 @@ func main() {
 	slog.Debug("Debug", "self", *self)
 
 	RunREPL()
-
-	// /* TEST crypto.go */
-
-	// /* Workflow:
-	// 1. Generating a Diffie-Hellman key pair.
-	// 2. Computing a shared secret using the public key from the key pair (simulating a handshake with another party).
-	// 3. Hashing the shared secret to fit the size required for AES.
-	// 4. Test AES: Using the hashed shared secret as a key to encrypt and decrypt data.
-	// */
-
-	// Step 1: Generate ECDH key pair for Diffie-Hellman handshake, using Alice & Bob as an example
-	// curve := ecdh.P256()
-	// privKey1, pubKey1, err := crypto.GenerateKeyPair(curve)
-	// slog.Debug("Alice AES Private Key ", hex.EncodeToString(privKey1.Bytes()))
-	// slog.Debug("Alice AES Public Key ", hex.EncodeToString(pubKey1.Bytes()))
-
-	// privKey2, pubKey2, err := crypto.GenerateKeyPair(curve)
-	// // Generate RSA key pair for Bob
-	// privRSAKey2, pubRSAKey2, err := crypto.GenerateRSAKeys()
-
-	// Encrypt and Decrypt Alice's AES public key using RSA key pair.
-	// cipherKey1, err := crypto.EncryptWithPublicKey(pubKey1.Bytes(), pubRSAKey2)
-	// slog.Debug("Alice RSA Encrypted her Public Key to Bob: ", hex.EncodeToString(cipherKey1))
-
-	// decryptMsgKey1, err := crypto.DecryptWithPrivateKey(cipherKey1, privRSAKey2)
-
-	// slog.Debug("Bob RSA Decrypted Public Key from Alice: ", hex.EncodeToString(decryptMsgKey1))
-
-	// if bytes.Equal(pubKey1.Bytes(), decryptMsgKey1) {
-	// 	slog.Info("************** RSA succeeded ***************")
-	// } else {
-	// 	slog.Error("************** RSA encryption failed **************")
-	// }
-
-	// // Step 2: Computing a shared secret
-	// secret1, err := crypto.ComputeSharedSecret(privKey1, pubKey2)
-	// if err != nil {
-	// 	slog.Error("Failed to compute shared secret for Alice:", err)
-	// 	return
-	// }
-
-	// secret2, err := crypto.ComputeSharedSecret(privKey2, pubKey1)
-	// if err != nil {
-	// 	slog.Error("Failed to compute shared secret for Bob:", err)
-	// 	return
-	// }
-
-	// if bytes.Equal(secret1, secret2) {
-	// 	slog.Info("************** Diffie-Hellman key exchange succeeded!************** ")
-	// } else {
-	// 	slog.Error("************** Diffie-Hellman key exchange failed!************** ")
-	// }
-	// // CONSIDER: why hash and not just use shaed secret
-	// // Step 3: Hashing
-	// hashedSecret := crypto.Hash(secret1)
-	// hashedSecret2 := crypto.Hash(secret2)
-	// if bytes.Equal(hashedSecret, hashedSecret2) {
-	// 	slog.Info("************** Hashing is deterministic! **************")
-	// } else {
-	// 	slog.Error("Hashing is not deterministic!")
-	// }
-
-	// // Step 4: Test AES functions
-	// // Use the hashed secret as a key to encrypt and decrypt data
-	// data := []byte("This is a test message.")
-	// encryptedData, err := crypto.EncryptData(data, hashedSecret)
-	// if err != nil {
-	// 	slog.Error("Error encrypting data:", err)
-	// 	return
-	// }
-
-	// slog.Info("Encrypted Data:", hex.EncodeToString(encryptedData))
-
-	// decryptedData, err := crypto.DecryptData(encryptedData, hashedSecret)
-	// if err != nil {
-	// 	slog.Error("Error decrypting data:", err)
-	// 	return
-	// }
-
-	// if string(decryptedData) == string(data) {
-	// 	slog.Info("************** Decryption successful!************** \n Decrypted message:", string(decryptedData))
-	// } else {
-	// 	slog.Error("Decryption failed. Decrypted data does not match original.")
-	// }
 }

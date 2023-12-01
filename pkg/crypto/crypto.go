@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"cs2390-acn/pkg/protocol"
 	"io"
 	"log/slog"
 )
@@ -20,6 +21,8 @@ const (
 	NonceSize          = 16
 	RSABitSize         = 2048
 	SHA256ChecksumSize = 32
+	SHA256DigestSize   = 6
+	PubKeyByteSize     = 65
 )
 
 // GenerateAESKey generates a random AES key.
@@ -30,8 +33,7 @@ func GenerateAESKey() ([]byte, error) {
 		slog.Error("Error generating AES key:", err)
 		return nil, err
 	}
-	slog.Info("AES key generated successfully.")
-	slog.Debug("Key is %v", key)
+	slog.Info("AES key generated successfully.", "Key = ", key)
 	return key, nil
 }
 
@@ -92,8 +94,30 @@ func EncryptData(data, key []byte) ([]byte, error) {
 	stream.XORKeyStream(ciphertext, data)
 
 	slog.Debug("Data encrypted successfully.")
-	slog.Debug("Plaintext: %v\nCiphertext: %v", data, ciphertext)
 	return append(nonce, ciphertext...), nil
+}
+
+func EncryptWrapper(data [protocol.CellPayloadSize]byte, key []byte) ([protocol.CellPayloadSize]byte, error) {
+	var encryptedData [protocol.CellPayloadSize]byte
+
+	// Extract actual size from the last two bytes
+	size := int(data[protocol.CellPayloadSize-2])<<8 + int(data[protocol.CellPayloadSize-1])
+
+	// Encrypt only the data part
+	encrypted, err := EncryptData(data[:size], key)
+	if err != nil {
+		return encryptedData, err
+	}
+
+	// Copy encrypted data back to array
+	copy(encryptedData[:], encrypted)
+
+	// Update size in the last two bytes
+	newSize := len(encrypted)
+	encryptedData[protocol.CellPayloadSize-2] = byte(newSize >> 8)
+	encryptedData[protocol.CellPayloadSize-1] = byte(newSize & 0xff)
+
+	return encryptedData, nil
 }
 
 // DecryptData decrypts data using AES-CTR.
@@ -117,9 +141,31 @@ func DecryptData(data, key []byte) ([]byte, error) {
 	plaintext := make([]byte, len(ciphertext))
 	stream.XORKeyStream(plaintext, ciphertext)
 
-	slog.Debug("Data decrypted successfully.")
-	slog.Debug("Plaintext: %v\nCiphertext: %v", plaintext, ciphertext)
+	slog.Debug("Data encrypted successfully.")
 	return plaintext, nil
+}
+
+func DecryptWrapper(data [protocol.CellPayloadSize]byte, key []byte) ([protocol.CellPayloadSize]byte, error) {
+	var decryptedData [protocol.CellPayloadSize]byte
+
+	// Extract actual size from the last two bytes
+	size := int(data[protocol.CellPayloadSize-2])<<8 + int(data[protocol.CellPayloadSize-1])
+
+	// Decrypt only the encrypted part
+	decrypted, err := DecryptData(data[:size], key)
+	if err != nil {
+		return decryptedData, err
+	}
+
+	// Copy decrypted data back to array
+	copy(decryptedData[:], decrypted)
+
+	// Update size in the last two bytes
+	newSize := len(decrypted)
+	decryptedData[protocol.CellPayloadSize-2] = byte(newSize >> 8)
+	decryptedData[protocol.CellPayloadSize-1] = byte(newSize & 0xff)
+
+	return decryptedData, nil
 }
 
 /*
@@ -151,12 +197,21 @@ func ComputeSharedSecret(privKey *ecdh.PrivateKey, pubKey *ecdh.PublicKey) ([]by
 	return secret, nil
 }
 
-// Can also use this for hash data to get digest?
+// Can also use this for hash data to get digest? -- NO, because digest is 6 bytes, this is 32 bytes
 func Hash(data []byte) [SHA256ChecksumSize]byte {
 	hash := sha256.Sum256(data)
 	slog.Debug("Shared data hashed successfully.")
 	slog.Debug("Hashing done", "data", data, "hash", hash)
 	return hash
+}
+
+// Hash computes a truncated SHA256 hash of the data and returns the first 6 bytes.
+// WARNING: truncating can reduce its security, making it more susceptible to collisions
+func HashDigest(data []byte) [SHA256DigestSize]byte {
+	fullHash := sha256.Sum256(data)
+	var shortHash [SHA256DigestSize]byte
+	copy(shortHash[:], fullHash[:SHA256DigestSize])
+	return shortHash
 }
 
 /*
