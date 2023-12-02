@@ -40,7 +40,9 @@ func InitializeSelf() (*models.OnionRouter, error) {
 func RunREPL() {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Print("> ")
+	slog.Debug("Reached debug after checkpoint 1234")
 	for scanner.Scan() {
+		slog.Debug("Reached debug after checkpoint 1235")
 		line := scanner.Text()
 		words := strings.Split(line, " ")
 		cmd := words[0]
@@ -156,10 +158,15 @@ func main() {
 
 	// In a separate thread keep on listening for any connections
 	go AcceptClients(tcpListner)
+	slog.Debug("Reached debug after checkpoint 123")
 
 	RunREPL()
+	slog.Debug("Reached After repl debug")
 
-	// Keep the main goroutine running without doing anything
-	select {}
+	// Block the main goroutine from exiting immediately
+    for {
+        // Keep the main goroutine running indefinitely
+		slog.Debug("Reached debug after repl debug blocking")
+    }	
 
 }

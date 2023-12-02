@@ -1,0 +1,12 @@
+FROM golang:latest
+
+WORKDIR /app
+
+COPY . .
+
+RUN go build -o onion-router ./cmd/onion-router
+
+# Define a build argument for the port number (default to 9090 if not provided)
+ARG PORT=9090
+
+CMD ["./onion-router", "${PORT}"]
