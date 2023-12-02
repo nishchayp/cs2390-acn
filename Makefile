@@ -1,4 +1,4 @@
-.PHONY: all clean docker create_network
+.PHONY: clean all docker
 
 NETWORK_NAME := my_network
 
@@ -13,7 +13,7 @@ clean:
 docker: create_network docker_build_1 docker_build_2 docker_build_3 docker_run_1 docker_run_2 docker_run_3
 
 create_network:
-	docker network create $(NETWORK_NAME)
+	-docker network create $(NETWORK_NAME)
 
 docker_build_1:
 	docker build -t onion_router_1_image --build-arg PORT=9090 -f Dockerfile_combined .

@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 	"strings"
 )
 
@@ -156,6 +158,9 @@ func main() {
 	defer tcpListner.Close()
 	slog.Debug("Ready to accept connections")
 
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+
 	// In a separate thread keep on listening for any connections
 	go AcceptClients(tcpListner)
 	slog.Debug("Reached debug after checkpoint 123")
@@ -163,10 +168,8 @@ func main() {
 	RunREPL()
 	slog.Debug("Reached After repl debug")
 
-	// Block the main goroutine from exiting immediately
-    for {
-        // Keep the main goroutine running indefinitely
-		slog.Debug("Reached debug after repl debug blocking")
-    }	
-
+	sig := <-sigCh
+	slog.Debug("Received signal:", "signal", sig)
+	// Add cleanup code or additional shutdown logic if needed
+	os.Exit(0)
 }
