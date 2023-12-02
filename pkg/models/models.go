@@ -7,6 +7,13 @@ import (
 	"net/netip"
 )
 
+type DirectoryEntry struct {
+	ID        int
+	IP        string
+	Port      int
+	PublicKey string
+}
+
 type ORHop struct {
 	AddrPort     netip.AddrPort
 	SharedSymKey []byte
