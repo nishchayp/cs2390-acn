@@ -1,0 +1,12 @@
+"filename", "language", "Go", "Go Module File", "Makefile", "Markdown", "comment", "blank", "total"
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/Makefile", "Makefile", 0, 0, 6, 0, 0, 1, 7
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/README.md", "Markdown", 0, 0, 0, 3, 0, 2, 5
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/cmd/onion-proxy/main.go", "Go", 131, 0, 0, 0, 108, 42, 281
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/cmd/onion-router/main.go", "Go", 89, 0, 0, 0, 24, 16, 129
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/go.mod", "Go Module File", 0, 2, 0, 0, 0, 2, 4
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/pkg/common/common.go", "Go", 53, 0, 0, 0, 2, 10, 65
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/pkg/crypto/crypto.go", "Go", 127, 0, 0, 0, 65, 21, 213
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/pkg/handler/handler.go", "Go", 142, 0, 0, 0, 83, 27, 252
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/pkg/models/models.go", "Go", 34, 0, 0, 0, 59, 20, 113
+"/Users/nishchay/Brown/CSCI2390/final_project/cs2390-acn/pkg/protocol/protocol.go", "Go", 246, 0, 0, 0, 27, 37, 310
+"Total", "-", 822, 2, 6, 3, 368, 178, 1379
