@@ -240,6 +240,17 @@ func (payload *RelayCellPayload) Marshall() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// Marshall serializes the RelayCellPayload to bytes.
+// func (payload *RelayCellPayload) Marshall() ([]byte, error) {
+// 	buf := make([]byte, RelayHeaderSize+RelayPayloadSize)
+// 	binary.BigEndian.PutUint16(buf[:2], payload.StreamID)
+// 	copy(buf[2:2+DigestSize], payload.Digest[:])
+// 	binary.BigEndian.PutUint16(buf[2+DigestSize:4+DigestSize], payload.Len)
+// 	buf[4+DigestSize] = byte(payload.Cmd)
+// 	copy(buf[RelayHeaderSize:], payload.Data[:])
+// 	return buf, nil
+// }
+
 // Unmarshall deserializes the bytes into a RelayCellPayload.
 func (payload *RelayCellPayload) Unmarshall(data []byte) error {
 	if len(data) < RelayHeaderSize+RelayPayloadSize {

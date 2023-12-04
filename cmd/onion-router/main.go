@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"text/tabwriter"
 )
 
 // Global declaration
@@ -47,34 +48,27 @@ func RunREPL() {
 		switch cmd {
 		case "exit":
 			os.Exit(0)
-		case "show-circuit":
-			fmt.Println("Current circuit path:")
+		case "show-links":
+			w := tabwriter.NewWriter(os.Stdout, 1, 1, 1, ' ', 0)
+			fmt.Fprintf(w, "\t%s\t%s\t%s\n", "Recd CircID", "Next CircID", "Next OR Addr")
 			for circID, link := range self.CircuitLinkMap {
-				fmt.Printf("Circuit ID: %d\n", circID)
-				//fmt.Printf("Link: %s\n", link)
-				fmt.Printf("SymKey: %s\n", link.SharedSymKey)
-				fmt.Printf("Next Circ ID: %d\n", link.NextCircID)
-				fmt.Printf("Next port: %s\n", link.NextORAddrPort)
-				fmt.Println("----------------------")
+				fmt.Fprintf(w, "\t%d\t%d\t%s\n", circID, link.NextCircID, link.NextORAddrPort)
 			}
-		case "establish-circuit":
-			// TODO: create circuit
-		case "send":
-			// destIp := words[1]
-			// message := strings.Join(words[2:], " ")
-			// protocol.SendTest(ipStack, destIp, message)
-		case "display-metadata": // Temporary for debugging ORs
-			fmt.Printf("Circuit ID Counter: %d\n", self.CircIDCounter)
-			fmt.Printf("Curve: %s\n", self.Curve)
-			fmt.Printf("CircuitLinkMap: %s\n", self.CircuitLinkMap)
-			fmt.Printf("CellHandlerRegistry: %s\n", self.CellHandlerRegistry)
-			fmt.Printf("RelayCellHandlerRegistry: %s\n", self.RelayCellHandlerRegistry)
+			w.Flush()
 		default:
 			fmt.Println("Invalid command:")
-			// ListCommands()
+			ListCommands()
 		}
 		fmt.Print("> ")
 	}
+}
+
+func ListCommands() {
+	w := tabwriter.NewWriter(os.Stdout, 1, 1, 1, ' ', 0)
+	fmt.Fprintf(w, "Commands\n")
+	fmt.Fprintf(w, "\t%s\t%s\n", "exit", "Terminate this program")
+	fmt.Fprintf(w, "\t%s\t%s\n", "show-links", "Print out circuit links with this OR")
+	w.Flush()
 }
 
 // Receives a connection, recvs cell, calls the handler based on cell
@@ -84,12 +78,9 @@ func ServeClient(conn net.Conn) {
 	var cell protocol.Cell
 	err := cell.Recv(conn)
 	if err != nil {
-		slog.Debug("Received Cell???", "Cmd", cell.Cmd, "Data", cell.Data)
-
 		slog.Error("Failed to recv cell over tcp.", "Err", err)
 	}
 
-	//slog.Debug("Cell", "value", cell)
 	slog.Debug("Received Cell!!!", "Cmd", cell.Cmd, "Data", cell.Data, "value", cell)
 
 	// Call the appropriate handler
@@ -98,8 +89,6 @@ func ServeClient(conn net.Conn) {
 		slog.Warn("Dropping cell", "unsupported cell cmd", cell.Cmd)
 		return
 	}
-	//slog.Debug("Handler Func", "Cmd", cell.Cmd, "Data", cell.Data, "Func", handlerFunc)
-
 	handlerFunc(self, conn, &cell)
 
 }
@@ -117,7 +106,7 @@ func AcceptClients(tcpListner *net.TCPListener) {
 }
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
 	if len(os.Args) != 2 {
