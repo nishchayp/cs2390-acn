@@ -7,8 +7,10 @@ import (
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
+	"net/http"
 )
 
 // Recieves create cell, sends its share and creates shared secret
@@ -308,9 +310,15 @@ func RelayCellDataHandler(self *models.OnionRouter, circID uint16, relayPayload 
 	}
 	slog.Debug("Data Reiceived", "Data", relayDataCellPayload.Data)
 
+	httpResp, err := GetRequest(relayDataCellPayload.Data)
+	if err != nil {
+		slog.Warn("Unable to send Get request", "Err", err)
+		return []byte{}, err
+	}
+
 	// From the response create a relay data resp cell
 	relayDataRespCellPayload := protocol.RelayDataCellPayload{
-		Data: Reverse(relayDataCellPayload.Data),
+		Data: httpResp,
 	}
 
 	marshalledRelayDataCellPayload, err := relayDataRespCellPayload.Marshall()
@@ -348,4 +356,21 @@ func Reverse(s string) string {
 		runes[i], runes[j] = runes[j], runes[i]
 	}
 	return string(runes)
+}
+
+func GetRequest(url string) (string, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		slog.Warn("Unable to send Get request", "Err", err)
+		return "", err
+	}
+	//We Read the response body on the line below.
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		slog.Warn("Unable to send Get request", "Err", err)
+		return "", err
+	}
+	//Convert the body to type string
+	sb := string(body)
+	return sb, nil
 }
