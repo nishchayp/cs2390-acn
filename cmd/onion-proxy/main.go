@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/netip"
 	"os"
 	"strconv"
@@ -39,10 +40,18 @@ func EstablishCircuit() (uint16, error) {
 		return 0, errors.New("circuit alread exists")
 	}
 	circuit := models.Circuit{}
+
 	// TODO: change to parse directory
-	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9090")})
-	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9091")})
-	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9092")})
+	ipAddresses := []string{"10.1.1.1:9090", "10.1.1.2:9090", "10.1.1.3:9090", "10.1.1.4:9090", "10.1.1.5:9090"}
+
+	// circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("10.1.1.1:9090")})
+	// circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("10.1.1.2:9090")})
+	// circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("10.1.1.3:9090")})
+
+	rand.Shuffle(len(ipAddresses), func(i, j int) { ipAddresses[i], ipAddresses[j] = ipAddresses[j], ipAddresses[i] })
+	for _, chosenIP := range ipAddresses[:3] {
+		circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort(chosenIP)})
+	}
 
 	// Establishing circuit with subsequent hops
 	for i := 0; i < len(circuit.Path); i++ {

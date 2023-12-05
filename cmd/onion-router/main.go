@@ -110,9 +110,9 @@ func main() {
 	slog.SetDefault(logger)
 
 	if len(os.Args) != 2 {
-		log.Fatalf("usage: %s <port>", os.Args[0])
+		log.Fatalf("usage: %s <servername>", os.Args[0])
 	}
-	port := os.Args[1]
+	servername := os.Args[1]
 
 	// Setup self instance
 	var err error
@@ -131,7 +131,7 @@ func main() {
 	// tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
 	//fmt.Println("Test Debug 1234")
 
-	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%s", port))
+	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%s", servername))
 	if err != nil {
 		slog.Error("Failed to set up a port to listen for tcp traffic.", "Err", err)
 	}
