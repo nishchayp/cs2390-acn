@@ -11,8 +11,8 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"os/signal"
-	"syscall"
+	//"os/signal"
+	//"syscall"
 	"strings"
 )
 
@@ -42,9 +42,9 @@ func InitializeSelf() (*models.OnionRouter, error) {
 func RunREPL() {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Print("> ")
-	slog.Debug("Reached debug after checkpoint 1234")
+	//slog.Debug("Reached debug after checkpoint 1234")
 	for scanner.Scan() {
-		slog.Debug("Reached debug after checkpoint 1235")
+		//slog.Debug("Reached debug after checkpoint 1235")
 		line := scanner.Text()
 		words := strings.Split(line, " ")
 		cmd := words[0]
@@ -158,9 +158,6 @@ func main() {
 	defer tcpListner.Close()
 	slog.Debug("Ready to accept connections")
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-
 	// In a separate thread keep on listening for any connections
 	go AcceptClients(tcpListner)
 	slog.Debug("Reached debug after checkpoint 123")
@@ -168,8 +165,4 @@ func main() {
 	RunREPL()
 	slog.Debug("Reached After repl debug")
 
-	sig := <-sigCh
-	slog.Debug("Received signal:", "signal", sig)
-	// Add cleanup code or additional shutdown logic if needed
-	os.Exit(0)
 }

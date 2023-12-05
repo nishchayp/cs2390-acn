@@ -68,9 +68,12 @@ func EstablishCircuit() error {
 	}
 	circuit := models.Circuit{}
 	// TODO: change to parse directory
-	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("172.22.0.2:9090")})
-	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("172.22.0.3:9091")})
-	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("172.22.0.4:9092")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("172.24.0.2:9090")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("172.24.0.3:9091")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("172.24.0.4:9092")})
+	/*circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9090")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9091")})
+	circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("127.0.0.1:9092")})*/
 
 	// Establishing circuit with subsequent hops
 	for i := 0; i < len(circuit.Path); i++ {

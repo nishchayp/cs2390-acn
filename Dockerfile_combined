@@ -6,7 +6,8 @@ COPY . .
 
 RUN go build -o onion-router ./cmd/onion-router
 
+#CMD ["make", "clean", "all"]
 # Define a build argument for the port number (default to 9090 if not provided)
-ARG PORT=9090
+#ARG PORT=9090
 
-CMD ["./onion-router", "${PORT}"]
+#CMD ["./onion-router", "{PORT}"]
