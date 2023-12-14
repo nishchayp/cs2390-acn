@@ -7,10 +7,12 @@ import (
 	"cs2390-acn/pkg/models"
 	"cs2390-acn/pkg/protocol"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"time"
 )
 
 // Recieves create cell, sends its share and creates shared secret
@@ -359,6 +361,7 @@ func Reverse(s string) string {
 }
 
 func GetRequest(url string) (string, error) {
+	startTime := time.Now()
 	resp, err := http.Get(url)
 	if err != nil {
 		slog.Warn("Unable to send Get request", "Err", err)
@@ -372,5 +375,11 @@ func GetRequest(url string) (string, error) {
 	}
 	//Convert the body to type string
 	sb := string(body)
+	// Record the end time
+	endTime := time.Now()
+
+	// Calculate the elapsed time
+	elapsed := endTime.Sub(startTime)
+	fmt.Printf("Elapsed Time without Onion Routing: %s\n", elapsed)
 	return sb, nil
 }

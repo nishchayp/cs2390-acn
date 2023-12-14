@@ -16,10 +16,22 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 )
 
 // Global declaration
 var self *models.OnionProxy
+
+// Function type for any function that returns an error
+type funcWithError func() error
+
+// MeasureExecutionTime takes a function and returns the elapsed time along with any error
+func MeasureExecutionTime(fn funcWithError) (time.Duration, error) {
+	startTime := time.Now()
+	err := fn()
+	elapsed := time.Since(startTime)
+	return elapsed, err
+}
 
 // Initialize the instance of Onion Router
 func InitializeSelf() (*models.OnionProxy, error) {
@@ -187,10 +199,14 @@ func RunREPL() {
 				continue
 			}
 			message := strings.Join(words[2:], " ")
-			err = SendData(uint16(circId), message)
+			executionTime, err := MeasureExecutionTime(func() error {
+				return SendData(uint16(circId), message)
+			})
 			if err != nil {
 				slog.Error("Failed to send message through the circuit.", "Err", err)
 			}
+			fmt.Printf("Elapsed Time with Onion Routing: %s\n", executionTime)
+
 		default:
 			fmt.Println("Invalid command:")
 			ListCommands()
