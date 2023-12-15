@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net"
 	"net/netip"
 	"os"
 	"strconv"
@@ -126,8 +127,12 @@ func SendData(circID uint16, message string) error {
 	}
 	// TODO: currently send to the last OR in the path as destHopNum. Maybe we will choose the hop in the future.
 	respRelayDataPayload, err := common.RelayCellDataRT(circID, &relayDataPayload, &circuit, uint(len(circuit.Path)-1))
+	if err != nil {
+		//fmt.Printf("Error sending data through the circuit: %v\n", err)
+		return err
+	}
 	fmt.Printf("Response: %s\n", respRelayDataPayload.Data)
-	return err
+	return nil
 }
 
 // Prints put the circuit
@@ -142,6 +147,35 @@ func ShowCircuit(circID uint16) {
 		fmt.Printf("OR-%d <%s> -> ", idx, or.AddrPort)
 	}
 	fmt.Println("/")
+}
+
+// Tears down all the circuits
+func TeardownCircuit(circID uint16) {
+	ckt, exists := self.CircuitMap[circID]
+	if !exists {
+		slog.Error("Invalid circID")
+		return
+	}
+	for _, or := range ckt.Path {
+		// Create a output socket and connect to entry OR
+		conn, err := net.Dial("tcp4", or.AddrPort.String())
+		if err != nil {
+			slog.Warn("Failed to create a output socket and connect", "Err", err)
+			return
+		}
+
+		destroyCell := protocol.Cell{
+			CircID: circID,
+			Cmd:    uint8(protocol.Destroy),
+		}
+
+		err = destroyCell.Send(conn)
+		if err != nil {
+			slog.Warn("Failed to send cell", "Err", err)
+			return
+		}
+	}
+	delete(self.CircuitMap, circID)
 }
 
 func RunREPL() {
@@ -190,7 +224,23 @@ func RunREPL() {
 			err = SendData(uint16(circId), message)
 			if err != nil {
 				slog.Error("Failed to send message through the circuit.", "Err", err)
+				fmt.Print("> ")
+				continue
 			}
+		case "teardown":
+			if len(words) == 1 {
+				for circId := range self.CircuitMap {
+					TeardownCircuit(circId)
+				}
+			} else {
+				circId, err := strconv.Atoi(words[1])
+				if err != nil {
+					slog.Error("Invalid circID")
+				} else {
+					TeardownCircuit(uint16(circId))
+				}
+			}
+			fmt.Println("Circuit torn down")
 		default:
 			fmt.Println("Invalid command:")
 			ListCommands()
@@ -203,6 +253,8 @@ func ListCommands() {
 	w := tabwriter.NewWriter(os.Stdout, 1, 1, 1, ' ', 0)
 	fmt.Fprintf(w, "Commands\n")
 	fmt.Fprintf(w, "\t%s\t%s\n", "exit", "Terminate this program")
+	fmt.Fprintf(w, "\t%s\t%s\n", "est-ckt", "Establishes circuit")
+	fmt.Fprintf(w, "\t%s\t%s\n", "teardown", "Teardowns all circuits")
 	fmt.Fprintf(w, "\t%s\t%s\n", "show-circuit", "Print out the circuit path")
 	fmt.Fprintf(w, "\t%s\t%s\n", "send", "Send data to exit OR")
 	w.Flush()
