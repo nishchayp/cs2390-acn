@@ -41,12 +41,12 @@ func EstablishCircuit() (uint16, error) {
 	}
 	circuit := models.Circuit{}
 
-	// TODO: change to parse directory
-	ipAddresses := []string{"10.1.1.1:9090", "10.1.1.2:9090", "10.1.1.3:9090", "10.1.1.4:9090", "10.1.1.5:9090"}
-
-	// circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("10.1.1.1:9090")})
-	// circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("10.1.1.2:9090")})
-	// circuit.Path = append(circuit.Path, models.ORHop{AddrPort: netip.MustParseAddrPort("10.1.1.3:9090")})
+	directory, err := os.ReadFile("directory.csv")
+	if err != nil {
+		slog.Warn("Failed to read directory", "Err", err)
+		return protocol.InvalidCircId, err
+	}
+	ipAddresses := strings.Split(string(directory), ",")
 
 	rand.Shuffle(len(ipAddresses), func(i, j int) { ipAddresses[i], ipAddresses[j] = ipAddresses[j], ipAddresses[i] })
 	for _, chosenIP := range ipAddresses[:3] {
