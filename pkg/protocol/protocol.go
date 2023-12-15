@@ -34,6 +34,7 @@ const (
 	Relay   CmdType = 0
 	Create  CmdType = 1
 	Created CmdType = 2
+	Destroy CmdType = 3
 )
 
 type RelayCmdType uint8

@@ -30,6 +30,7 @@ func InitializeSelf() (*models.OnionRouter, error) {
 	// Build CellHandlerRegistry registry
 	or.CellHandlerRegistry[protocol.Create] = handler.CreateCellHandler
 	or.CellHandlerRegistry[protocol.Relay] = handler.RelayCellHandler
+	or.CellHandlerRegistry[protocol.Destroy] = handler.DestroyCellHandler
 
 	// Build RelayCellHandlerRegistry registry
 	or.RelayCellHandlerRegistry[protocol.Extend] = handler.RelayCellExtendHandler
@@ -120,16 +121,6 @@ func main() {
 	if err != nil {
 		slog.Error("Failed to initialize self.", "Err", err)
 	}
-
-	// Set up a port to listen for tcp traffic, this would be the service's well know port
-	// All clients (OP and other ORs) will connect to this port
-	// TODO: pick up random node (maybe b/w 9000 - 9100), add to db
-	// - ID
-	// - IP
-	// - Port
-	// - Public key (for RSA)
-	// tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf(":%d", protocol.OnionListenerPort))
-	//fmt.Println("Test Debug 1234")
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp4", fmt.Sprintf("%s", servername))
 	if err != nil {
