@@ -79,6 +79,17 @@ func CreateCellHandler(self *models.OnionRouter, conn net.Conn, createCell *prot
 		"To ID", self.CircuitLinkMap[createCell.CircID].NextCircID, "To Addr", "current OR addr")
 }
 
+// Recieves destroy cell, clears the OR data
+func DestroyCellHandler(self *models.OnionRouter, conn net.Conn, destroyCell *protocol.Cell) {
+	slog.Debug("Recv in handler", "destroyCell", destroyCell)
+
+	// Clear circuit
+	for k := range self.CircuitLinkMap {
+		delete(self.CircuitLinkMap, k)
+	}
+	slog.Info("Circuits torn down")
+}
+
 // Recieves relay cell
 // 1. Check the circuit id, change the cell.circid to nextcircid
 // 2. Decrypts with its shared secret
