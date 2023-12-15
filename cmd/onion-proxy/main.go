@@ -126,8 +126,12 @@ func SendData(circID uint16, message string) error {
 	}
 	// TODO: currently send to the last OR in the path as destHopNum. Maybe we will choose the hop in the future.
 	respRelayDataPayload, err := common.RelayCellDataRT(circID, &relayDataPayload, &circuit, uint(len(circuit.Path)-1))
+	if err != nil {
+		//fmt.Printf("Error sending data through the circuit: %v\n", err)
+		return err
+	}
 	fmt.Printf("Response: %s\n", respRelayDataPayload.Data)
-	return err
+	return nil
 }
 
 // Prints put the circuit
@@ -190,6 +194,8 @@ func RunREPL() {
 			err = SendData(uint16(circId), message)
 			if err != nil {
 				slog.Error("Failed to send message through the circuit.", "Err", err)
+				fmt.Print("> ")
+				continue
 			}
 		default:
 			fmt.Println("Invalid command:")
