@@ -4,6 +4,12 @@ This Go-based project simulates a basic onion routing system, comprising two mai
 
 The onion-proxy component showcases the use of AES encryption and Diffie-Hellman key exchange for securing data transmission. It also demonstrates the creation, extension, and relay of onion routing circuits. The onion-router component establishes a TCP server, allowing clients to interact via a simple command-line REPL interface
 
+## Demo
+
+
+https://github.com/nishchayp/cs2390-acn/assets/23032266/5f5574a6-be2c-4d1e-8f06-3c9ecfbf3854
+
+
 
 ## Startup and showcase
 
